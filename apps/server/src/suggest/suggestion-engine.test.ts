@@ -161,4 +161,13 @@ describe("SuggestionEngine", () => {
     expect(user).toContain("Nubank");
     expect(user).toContain("THEM: Nice to meet you.\nME: Likewise.");
   });
+  it("depois de stopAccepting, perguntas e pedidos não geram novas sugestões", async () => {
+    const t = setup(answer("x", "y"));
+    t.engine.stopAccepting();
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "Tell me about yourself.", interrupted: false });
+    t.engine.request("r1");
+    await settle();
+    expect(t.events).toEqual([]);
+    expect(t.suggester.calls).toHaveLength(0);
+  });
 });

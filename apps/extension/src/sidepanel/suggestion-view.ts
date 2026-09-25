@@ -8,6 +8,8 @@ export interface SuggestionCard {
   pt: string;
   pending: boolean;
   error: string | null;
+  /** Aviso curto de pedido recusado (ex.: Alt+S repetido). */
+  notice: string | null;
 }
 
 const ERROR_MESSAGES: Record<SuggestionErrorCode, string> = {
@@ -19,14 +21,17 @@ const ERROR_MESSAGES: Record<SuggestionErrorCode, string> = {
   rate_limited: "Espere um instante para pedir outra sugestão.",
 };
 
-export function suggestionCard(suggestion: SuggestionState | null): SuggestionCard {
-  if (!suggestion) return { visible: false, label: "", en: "", pt: "", pending: false, error: null };
+export function suggestionCard(suggestion: SuggestionState | null, notice: string | null): SuggestionCard {
+  if (!suggestion) return { visible: notice !== null, label: "", en: "", pt: "", pending: false, error: null, notice };
+  const failed = suggestion.status === "error";
   return {
     visible: true,
     label: suggestion.trigger === "auto" ? "Sugestão para a pergunta" : "Sugestão a pedido",
-    en: suggestion.en,
-    pt: suggestion.pt,
+    // Texto parcial de uma sugestão que falhou pode estar quebrado: não é exibido.
+    en: failed ? "" : suggestion.en,
+    pt: failed ? "" : suggestion.pt,
     pending: suggestion.status === "streaming",
-    error: suggestion.status === "error" && suggestion.errorCode ? ERROR_MESSAGES[suggestion.errorCode] : null,
+    error: failed && suggestion.errorCode ? ERROR_MESSAGES[suggestion.errorCode] : null,
+    notice,
   };
 }

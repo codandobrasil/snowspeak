@@ -27,7 +27,7 @@
       <label>Contexto <textarea id="context" rows="3"></textarea></label>
       <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
       <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
-      <p class="hint">Currículo e vaga vão ao servidor e ao provedor de IA só para gerar sugestões; não são guardados.</p>
+      <p class="hint">Currículo e vaga ficam salvos só neste navegador; vão ao servidor e ao provedor de IA apenas para gerar sugestões.</p>
     </details>
 
     <div class="actions">
@@ -75,6 +75,7 @@
         <p id="suggestion-en" class="suggestion-en"></p>
         <p id="suggestion-pt" class="suggestion-pt"></p>
         <p id="suggestion-error" class="warning" hidden></p>
+        <p id="suggestion-notice" class="notice" hidden></p>
       </div>
       <button id="suggest" class="suggest-button">Sugerir resposta (Alt+S)</button>
     </section>

@@ -58,6 +58,11 @@ export class Session {
     this.settings = { ...this.settings, ...defined };
   }
 
+  /** Início do Parar: a conversa segue sendo registrada, mas sem novas sugestões. */
+  beginStop(): void {
+    this.engine.stopAccepting();
+  }
+
   requestSuggestion(requestId: string): void {
     this.engine.request(requestId);
   }

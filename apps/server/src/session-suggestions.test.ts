@@ -5,6 +5,7 @@ import type { Suggester } from "./suggest/openrouter";
 import type { ChatMessage } from "./suggest/prompt";
 import { createScriptedSttHub } from "./test-support/scripted-stt";
 import { START, TestClient, testConfig } from "./test-support/test-client";
+import { waitUntil } from "./test-support/wait";
 
 function recordingSuggester(script?: (signal: AbortSignal) => AsyncIterable<string>) {
   const calls: ChatMessage[][] = [];
@@ -83,5 +84,19 @@ describe("sugestões de ponta a ponta", () => {
     expect((await client.closed).code).toBe(4410);
     expect(client.types().at(-1)).toBe("session.ended");
     expect(client.messages.find((m) => m.type === "suggestion.error")).toMatchObject({ requestId: "r1", code: "cancelled" });
+  });
+
+  it("uma pergunta finalizada durante o Parar não gera sugestão", async () => {
+    const { hub, calls } = await setup();
+    const client = await TestClient.started(gateway.url);
+    const them = hub.channel("them");
+    client.sendSilence("them", 0);
+    await waitUntil(() => them.writes === 1);
+    them.emit({ kind: "partial", text: "tell me about" });
+    them.onFinalize = () => them.emit({ kind: "segment", text: "Tell me about yourself.", start: 0, end: 1, speechFinal: false, fromFinalize: true });
+    client.sendJson({ type: "session.stop" });
+    await client.closed;
+    expect(client.types()).not.toContain("suggestion.started");
+    expect(calls).toHaveLength(0);
   });
 });

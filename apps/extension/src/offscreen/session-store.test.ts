@@ -263,10 +263,24 @@ describe("sugestão", () => {
       { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
     );
     const busy = reduce(base, { type: "server", message: suggestionEvent(2, { type: "suggestion.error", requestId: "b", code: "busy" }) });
-    expect(busy.notice).toBe(BUSY_SUGGESTION_NOTICE);
+    expect(busy.suggestionNotice).toBe(BUSY_SUGGESTION_NOTICE);
     expect(busy.suggestion?.requestId).toBe("a");
     const rate = reduce(base, { type: "server", message: suggestionEvent(2, { type: "suggestion.error", requestId: "c", code: "rate_limited" }) });
-    expect(rate.notice).toBe(RATE_LIMITED_SUGGESTION_NOTICE);
+    expect(rate.suggestionNotice).toBe(RATE_LIMITED_SUGGESTION_NOTICE);
+  });
+
+  it("o aviso de pedido recusado não esconde outros avisos e some quando a sugestão termina", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "notice", message: "A transcrição da sua voz parou." },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
+      { type: "server", message: suggestionEvent(2, { type: "suggestion.error", requestId: "b", code: "busy" }) },
+    );
+    expect(state.notice).toBe("A transcrição da sua voz parou.");
+    const done = reduce(state, { type: "server", message: suggestionEvent(3, { type: "suggestion.done", requestId: "a", en: "Hi.", pt: "Oi." }) });
+    expect(done.suggestionNotice).toBeNull();
+    const next = reduce(state, { type: "server", message: suggestionEvent(3, { type: "suggestion.started", requestId: "c", trigger: "auto", basedOnUtteranceId: null }) });
+    expect(next.suggestionNotice).toBeNull();
   });
 
   it("erro da sugestão atual marca o estado de erro", () => {

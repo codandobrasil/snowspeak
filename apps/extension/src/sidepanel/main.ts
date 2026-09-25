@@ -35,6 +35,7 @@ const suggestionPending = byId<HTMLSpanElement>("suggestion-pending");
 const suggestionEn = byId<HTMLParagraphElement>("suggestion-en");
 const suggestionPt = byId<HTMLParagraphElement>("suggestion-pt");
 const suggestionError = byId<HTMLParagraphElement>("suggestion-error");
+const suggestionNotice = byId<HTMLParagraphElement>("suggestion-notice");
 const startButton = byId<HTMLButtonElement>("start");
 const stopButton = byId<HTMLButtonElement>("stop");
 const skipTranslatorButton = byId<HTMLButtonElement>("skip-translator");
@@ -146,7 +147,7 @@ function render(): void {
 }
 
 function renderSuggestion(state: SessionState): void {
-  const card = suggestionCard(state.suggestion);
+  const card = suggestionCard(state.suggestion, state.suggestionNotice);
   suggestionBox.hidden = !card.visible;
   suggestionLabel.textContent = card.label;
   suggestionPending.hidden = !card.pending;
@@ -154,6 +155,9 @@ function renderSuggestion(state: SessionState): void {
   suggestionPt.textContent = card.pt;
   suggestionError.hidden = !card.error;
   suggestionError.textContent = card.error ?? "";
+  suggestionNotice.hidden = !card.notice;
+  suggestionNotice.textContent = card.notice ?? "";
+  suggestionLabel.hidden = !card.label;
   suggestButton.disabled = state.status !== "running";
 }
 

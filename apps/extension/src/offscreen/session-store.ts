@@ -53,6 +53,8 @@ export interface SessionState {
   channels: Record<Channel, ChannelView>;
   captions: Caption[];
   suggestion: SuggestionState | null;
+  /** Aviso curto de pedido de sugestão recusado; some quando a sugestão atual avança. */
+  suggestionNotice: string | null;
 }
 
 export type StoreAction =
@@ -85,6 +87,7 @@ export function initialState(): SessionState {
     channels: { them: emptyChannel(), me: emptyChannel() },
     captions: [],
     suggestion: null,
+    suggestionNotice: null,
   };
 }
 
@@ -165,6 +168,7 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
     case "suggestion.started":
       return {
         ...next,
+        suggestionNotice: null,
         suggestion: {
           requestId: message.requestId,
           trigger: message.trigger,
@@ -180,14 +184,14 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
       return { ...next, suggestion: { ...next.suggestion, [message.lang]: next.suggestion[message.lang] + message.text } };
     case "suggestion.done":
       if (next.suggestion?.requestId !== message.requestId) return next;
-      return { ...next, suggestion: { ...next.suggestion, status: "done", en: message.en, pt: message.pt } };
+      return { ...next, suggestionNotice: null, suggestion: { ...next.suggestion, status: "done", en: message.en, pt: message.pt } };
     case "suggestion.error":
       if (next.suggestion?.requestId === message.requestId) {
-        return { ...next, suggestion: { ...next.suggestion, status: "error", errorCode: message.code } };
+        return { ...next, suggestionNotice: null, suggestion: { ...next.suggestion, status: "error", errorCode: message.code } };
       }
-      // Pedido recusado: aviso curto, a sugestão atual continua na tela.
-      if (message.code === "busy") return { ...next, notice: BUSY_SUGGESTION_NOTICE };
-      if (message.code === "rate_limited") return { ...next, notice: RATE_LIMITED_SUGGESTION_NOTICE };
+      // Pedido recusado: aviso curto no cartão, sem esconder outros avisos; a sugestão atual continua.
+      if (message.code === "busy") return { ...next, suggestionNotice: BUSY_SUGGESTION_NOTICE };
+      if (message.code === "rate_limited") return { ...next, suggestionNotice: RATE_LIMITED_SUGGESTION_NOTICE };
       return next;
   }
 }

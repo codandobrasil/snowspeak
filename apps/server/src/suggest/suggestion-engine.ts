@@ -40,6 +40,8 @@ export class SuggestionEngine {
   private lastManualAt = Number.NEGATIVE_INFINITY;
   private autoCount = 0;
   private closed = false;
+  // Durante o Parar a conversa ainda é registrada, mas nenhuma sugestão nova começa.
+  private accepting = true;
 
   constructor(private readonly deps: SuggestionEngineDeps) {}
 
@@ -47,7 +49,7 @@ export class SuggestionEngine {
     if (this.closed || !utterance.text.trim()) return;
     this.transcript.push({ channel: utterance.channel, text: utterance.text.trim(), utteranceId: utterance.utteranceId });
     if (this.transcript.length > MAX_TRANSCRIPT) this.transcript.shift();
-    if (utterance.channel !== "them" || utterance.interrupted || !looksLikeQuestion(utterance.text)) return;
+    if (!this.accepting || utterance.channel !== "them" || utterance.interrupted || !looksLikeQuestion(utterance.text)) return;
     // Pedido do usuário em andamento tem prioridade sobre a sugestão automática.
     if (this.inflight?.trigger === "manual") return;
     this.autoCount += 1;
@@ -55,7 +57,7 @@ export class SuggestionEngine {
   }
 
   request(requestId: string): void {
-    if (this.closed || this.seen.has(requestId)) return;
+    if (this.closed || !this.accepting || this.seen.has(requestId)) return;
     if (this.inflight?.trigger === "manual") {
       this.seen.add(requestId);
       this.deps.emit({ type: "suggestion.error", requestId, code: "busy" });
@@ -70,6 +72,11 @@ export class SuggestionEngine {
     this.lastManualAt = now;
     const lastThem = [...this.transcript].reverse().find((line) => line.channel === "them");
     this.start(requestId, "manual", lastThem?.utteranceId ?? null);
+  }
+
+  /** O usuário clicou em Parar: nada de sugestão nova (evita chamada paga que seria cancelada em seguida). */
+  stopAccepting(): void {
+    this.accepting = false;
   }
 
   close(): void {

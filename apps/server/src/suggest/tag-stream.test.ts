@@ -36,4 +36,8 @@ describe("TagStreamParser", () => {
   it("resultado vazio quando o modelo não usa as tags", () => {
     expect(feed(["Sure, I led that project."]).parser.result()).toEqual({ en: "", pt: "" });
   });
+  it("bloco que não fecha não conta como resposta completa", () => {
+    expect(feed(["<en>Hi there.</en><pt>Olá, tudo"]).parser.result()).toEqual({ en: "Hi there.", pt: "" });
+    expect(feed(["<en>Hi <pt>Olá</pt>"]).parser.result()).toEqual({ en: "", pt: "" });
+  });
 });

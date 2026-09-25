@@ -105,6 +105,7 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
     if (message?.type === "session.stop") {
       stopping = true;
       const current = session;
+      current.beginStop();
       // Entrega as últimas palavras e frases antes de encerrar.
       void current.drain().finally(() => {
         // close() cancela a sugestão em andamento e avisa antes do session.ended.

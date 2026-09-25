@@ -8,6 +8,8 @@ export class TagStreamParser {
   private buffer = "";
   private current: SuggestionLang | null = null;
   private readonly text = { en: "", pt: "" };
+  // Só blocos fechados contam como resposta (ex.: cortado por max_tokens dentro de <pt> não vale).
+  private readonly completed = { en: "", pt: "" };
 
   push(chunk: string): Array<{ lang: SuggestionLang; text: string }> {
     this.buffer += chunk;
@@ -31,6 +33,7 @@ export class TagStreamParser {
       const end = this.buffer.indexOf(close);
       if (end >= 0) {
         this.emit(deltas, this.buffer.slice(0, end));
+        this.completed[this.current] = this.text[this.current];
         this.buffer = this.buffer.slice(end + close.length);
         this.current = null;
         continue;
@@ -45,7 +48,7 @@ export class TagStreamParser {
   }
 
   result(): { en: string; pt: string } {
-    return { en: this.text.en.trim(), pt: this.text.pt.trim() };
+    return { en: this.completed.en.trim(), pt: this.completed.pt.trim() };
   }
 
   private emit(deltas: Array<{ lang: SuggestionLang; text: string }>, text: string): void {
