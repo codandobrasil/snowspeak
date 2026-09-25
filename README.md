@@ -45,24 +45,25 @@ A página `http://localhost:8787/tone` toca um seno de 440 Hz com amplitude 0,5 
 
 Marque cada item ao validar no Chrome:
 
-- [ ] Clicar no ícone abre o painel lateral.
-- [ ] "Liberar microfone" abre a aba de permissão; depois de aceitar, o aviso some do painel.
-- [ ] Abrir `http://localhost:8787/tone`, clicar em **Tocar**, clicar no ícone do SnowSpeak nessa aba e em **Iniciar**: o status muda para "Capturando" e a barra "Participantes" se move.
+- [x] Clicar no ícone abre o painel lateral.
+- [x] "Liberar microfone" abre a aba de permissão; depois de aceitar, o aviso some do painel.
+- [x] Abrir `http://localhost:8787/tone`, clicar em **Tocar**, clicar no ícone do SnowSpeak nessa aba e em **Iniciar**: o status muda para "Capturando" e a barra "Participantes" se move.
 - [ ] O tom continua audível durante a captura.
-- [ ] O canal Participantes mostra **≈ -9 dBFS · ~440 Hz**, com a duração crescendo 1 s por segundo.
-- [ ] Parar o tom na página: o canal passa a mostrar `silêncio`.
-- [ ] Falar no microfone move a barra "Você" e mostra nível e frequência no canal Você.
-- [ ] "descartados" e "s perdidos" ficam em 0 na rede local.
-- [ ] Fechar e reabrir o painel durante a captura mostra o mesmo status, contadores e textos.
-- [ ] **Parar**: status "Parado", barras zeradas e o indicador de captura da aba some.
-- [ ] **Parar durante a inicialização** (clicar Iniciar e logo em seguida Parar): nada fica capturando e é possível iniciar de novo.
-- [ ] **Fechar a aba capturada** durante a sessão: o painel mostra "A captura da aba terminou (aba fechada ou compartilhamento encerrado)." e nada fica capturando.
-- [ ] Com o painel aberto, trocar para outra aba (sem clicar no ícone nela) e clicar em Iniciar: aparece "Clique no ícone do SnowSpeak nesta aba para autorizar a captura." e nenhuma aba é capturada.
-- [ ] Chave errada: mensagem "Chave de acesso inválida." e nada fica capturando.
-- [ ] Servidor desligado: "Não foi possível conectar ao servidor." e nada fica capturando.
+- [x] O canal Participantes mostra **≈ -9 dBFS · ~440 Hz**, com a duração crescendo 1 s por segundo.
+- [x] Parar o tom na página: o canal passa a mostrar `silêncio`.
+- [x] Falar no microfone move a barra "Você" e mostra nível e frequência no canal Você.
+- [x] "descartados" e "s perdidos" ficam em 0 na rede local.
+- [x] Fechar e reabrir o painel durante a captura mostra o mesmo status, contadores e textos.
+- [x] **Parar**: status "Parado", barras zeradas e o indicador de captura da aba some.
+- [x] **Parar durante a inicialização** (clicar Iniciar e logo em seguida Parar): nada fica capturando e é possível iniciar de novo.
+- [x] **Fechar a aba capturada** durante a sessão: o painel mostra "A captura da aba terminou (aba fechada ou compartilhamento encerrado)." e nada fica capturando.
+- [x] Com o painel aberto, trocar para outra aba (sem clicar no ícone nela) e clicar em Iniciar: aparece "Clique no ícone do SnowSpeak nesta aba para autorizar a captura." e nenhuma aba é capturada.
+- [x] Chave errada: mensagem "Chave de acesso inválida." e nada fica capturando.
+- [x] Servidor desligado: "Não foi possível conectar ao servidor." e nada fica capturando.
+- [x] Servidor cai no meio da sessão: "Conexão com o servidor encerrada (código 1006)." e a captura é liberada (reconexão fica para o marco 2).
 - [ ] Endereço inválido no campo Servidor (ex.: `http://x`): mensagem de endereço inválido, sem iniciar a captura.
 - [ ] Microfone bloqueado (configurações do site da extensão → bloquear microfone): a sessão inicia e aparece "Sugestões sem suas falas".
-- [ ] Clique duplo rápido em Iniciar: uma única captura (os contadores não duplicam).
+- [x] Clique duplo rápido em Iniciar: uma única captura (os contadores não duplicam).
 - [ ] Com alto-falantes (sem fone), tocando o tom: anotar se o canal Você mostra ~440 Hz (eco da aba no microfone). Isso é informação para o marco 3.
 - [ ] Repetir o fluxo numa chamada real do Google Meet.
 
