@@ -145,4 +145,23 @@ describe("DeepgramStt", () => {
     expect(stream.droppedFrames).toBeGreaterThan(0);
     stream.close();
   });
+  it("mantém a conexão viva com KeepAlive quando o canal fica sem áudio", async () => {
+    createDeepgramSttFactory({ apiKey: "k", baseUrl: fake.url, keepAliveMs: 50 })("me", collect().callbacks);
+    await waitUntil(() => fake.connections.length === 1);
+    const connection = fake.connections[0]!;
+    await waitUntil(() => connection.received.includes('{"type":"KeepAlive"}'));
+  });
+
+  it("não envia KeepAlive enquanto o áudio flui", async () => {
+    const stream = createDeepgramSttFactory({ apiKey: "k", baseUrl: fake.url, keepAliveMs: 80 })("them", collect().callbacks);
+    await waitUntil(() => fake.connections.length === 1);
+    const connection = fake.connections[0]!;
+    await waitUntil(() => connection.socket.readyState === connection.socket.OPEN);
+    for (let i = 0; i < 10; i++) {
+      stream.write(new Uint8Array(3_200));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(connection.received).not.toContain('{"type":"KeepAlive"}');
+    stream.close();
+  });
 });

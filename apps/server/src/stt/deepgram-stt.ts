@@ -7,6 +7,8 @@ export const DEEPGRAM_URL = "wss://api.deepgram.com/v1/listen";
 export const DEEPGRAM_OPEN_TIMEOUT_MS = 5_000;
 // ~1 s de áudio (PCM16 16 kHz): acima disso a conexão está atrasada e o frame é descartado.
 export const DEEPGRAM_MAX_BUFFERED_BYTES = 32 * 1024;
+// O Deepgram fecha a conexão (NET-0001) após ~10 s sem áudio nem KeepAlive — ex.: canal "me" sem microfone.
+export const DEEPGRAM_KEEPALIVE_MS = 4_000;
 const MAX_PENDING_FRAMES = 10; // até 1 s de áudio enquanto a conexão abre
 
 export function deepgramListenUrl(baseUrl: string, channel: Channel): string {
@@ -31,16 +33,20 @@ export interface DeepgramOptions {
   baseUrl?: string;
   openTimeoutMs?: number;
   maxBufferedBytes?: number;
+  keepAliveMs?: number;
 }
 
 export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
   const baseUrl = options.baseUrl ?? DEEPGRAM_URL;
   const maxBufferedBytes = options.maxBufferedBytes ?? DEEPGRAM_MAX_BUFFERED_BYTES;
+  const keepAliveMs = options.keepAliveMs ?? DEEPGRAM_KEEPALIVE_MS;
 
   return (channel, callbacks) => {
     const ws = new WebSocket(deepgramListenUrl(baseUrl, channel), { headers: { Authorization: `Token ${options.apiKey}` } });
     const pending: Uint8Array[] = [];
     let droppedFrames = 0;
+    let lastSentAt = Date.now();
+    let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     let closedByUs = false;
     let failed = false;
 
@@ -58,6 +64,12 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
     ws.on("open", () => {
       clearTimeout(openTimer);
       for (const pcm of pending.splice(0)) ws.send(pcm);
+      lastSentAt = Date.now();
+      keepAliveTimer = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN || Date.now() - lastSentAt < keepAliveMs) return;
+        ws.send(JSON.stringify({ type: "KeepAlive" }));
+        lastSentAt = Date.now();
+      }, keepAliveMs);
     });
     ws.on("message", (data, isBinary) => {
       if (isBinary) return;
@@ -67,6 +79,7 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
     ws.on("error", (error) => fail(`Deepgram: ${error.message}`));
     ws.on("close", (code) => {
       clearTimeout(openTimer);
+      if (keepAliveTimer) clearInterval(keepAliveTimer);
       if (droppedFrames > 0) console.warn(`Deepgram (${channel}): ${droppedFrames} frames descartados por congestionamento`);
       fail(`Deepgram encerrou a conexão (código ${code})`);
     });
@@ -83,6 +96,7 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
             return;
           }
           ws.send(pcm);
+          lastSentAt = Date.now();
         } else if (ws.readyState === WebSocket.CONNECTING) {
           pending.push(pcm);
           if (pending.length > MAX_PENDING_FRAMES) {
@@ -97,6 +111,7 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
       close() {
         closedByUs = true;
         clearTimeout(openTimer);
+        if (keepAliveTimer) clearInterval(keepAliveTimer);
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "CloseStream" }));
           ws.close(1000);

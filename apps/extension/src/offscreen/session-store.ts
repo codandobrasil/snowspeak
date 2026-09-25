@@ -51,6 +51,8 @@ export type StoreAction =
   | { type: "sentence-translated"; sessionId: string; utteranceId: string; sentenceIdx: number; text: string }
   | { type: "sentence-translation-failed"; sessionId: string; utteranceId: string; sentenceIdx: number }
   | { type: "notice"; message: string }
+  /** Apaga o aviso só se ele ainda for o indicado (não apaga avisos de outra origem). */
+  | { type: "clear-notice"; message: string }
   | { type: "stopping" }
   | { type: "failed"; message: string }
   | { type: "stopped" };
@@ -173,6 +175,8 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
       return updateSentence(state, action.sessionId, action.utteranceId, action.sentenceIdx, { failed: true });
     case "notice":
       return { ...state, notice: action.message };
+    case "clear-notice":
+      return state.notice === action.message ? { ...state, notice: null } : state;
     case "stopping":
       return { ...state, status: "stopping", channels: silenced(state) };
     case "failed":

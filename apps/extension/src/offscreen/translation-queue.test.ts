@@ -3,7 +3,8 @@ import type { ServerMessage } from "@snowspeak/shared";
 import { SessionStore } from "./session-store";
 import {
   MAX_PENDING_TRANSLATIONS,
-  TRANSLATOR_UNAVAILABLE_NOTICE,
+  TRANSLATOR_RETRY_MS,
+  TRANSLATOR_RETRY_NOTICE,
   TranslationQueue,
   type SentenceTranslator,
 } from "./translation-queue";
@@ -39,10 +40,10 @@ function translatorOf(translate: (text: string) => Promise<string>) {
   return { translate, destroy } satisfies SentenceTranslator;
 }
 
-function setup(provide: () => Promise<SentenceTranslator>) {
+function setup(provide: () => Promise<SentenceTranslator>, now: () => number = () => 0) {
   seq = 0;
   const store = new SessionStore();
-  const queue = new TranslationQueue(provide, store);
+  const queue = new TranslationQueue(provide, store, { now });
   // No offscreen, o controlador aplica a mensagem ao store e depois a repassa à fila.
   const deliver = (message: ServerMessage) => {
     store.dispatch({ type: "server", message });
@@ -107,8 +108,8 @@ describe("TranslationQueue", () => {
     t.deliver(sentence("s1", 0, "Hi."));
     t.deliver(sentence("s1", 1, "Bye."));
     await flush();
-    expect(t.store.snapshot().notice).toBe(TRANSLATOR_UNAVAILABLE_NOTICE);
-    expect(notices.filter((n) => n === TRANSLATOR_UNAVAILABLE_NOTICE).length).toBeGreaterThan(0);
+    expect(t.store.snapshot().notice).toBe(TRANSLATOR_RETRY_NOTICE);
+    expect(notices.filter((n) => n === TRANSLATOR_RETRY_NOTICE).length).toBeGreaterThan(0);
     expect(t.sentences()).toMatchObject({ 0: { failed: true }, 1: { failed: true } });
   });
 
@@ -136,5 +137,45 @@ describe("TranslationQueue", () => {
     t.deliver(segment("s1", "Hello"));
     await flush();
     expect(provide).not.toHaveBeenCalled();
+  });
+  it("tenta criar o tradutor de novo depois do intervalo e volta a traduzir", async () => {
+    let now = 0;
+    const provide = vi
+      .fn<() => Promise<SentenceTranslator>>()
+      .mockRejectedValueOnce(new Error("NotAllowedError"))
+      .mockResolvedValue(translatorOf(async (text) => `pt:${text}`));
+    const t = setup(provide, () => now);
+    t.deliver(sentence("s1", 0, "Hi."));
+    await flush();
+    expect(t.store.snapshot().notice).toBe(TRANSLATOR_RETRY_NOTICE);
+
+    now = TRANSLATOR_RETRY_MS - 1;
+    t.deliver(sentence("s1", 1, "Still."));
+    await flush();
+    expect(provide).toHaveBeenCalledTimes(1);
+    expect(t.sentences()?.[1]).toMatchObject({ failed: true });
+
+    now = TRANSLATOR_RETRY_MS;
+    t.deliver(sentence("s1", 2, "Now."));
+    await flush();
+    expect(provide).toHaveBeenCalledTimes(2);
+    expect(t.sentences()?.[2]).toMatchObject({ translation: "pt:Now.", failed: false });
+    expect(t.store.snapshot().notice).toBeNull();
+  });
+
+  it("ao voltar a traduzir, não apaga um aviso de outra origem", async () => {
+    let now = 0;
+    const provide = vi
+      .fn<() => Promise<SentenceTranslator>>()
+      .mockRejectedValueOnce(new Error("x"))
+      .mockResolvedValue(translatorOf(async (text) => text));
+    const t = setup(provide, () => now);
+    t.deliver(sentence("s1", 0, "Hi."));
+    await flush();
+    t.store.dispatch({ type: "notice", message: "A transcrição da sua voz parou." });
+    now = TRANSLATOR_RETRY_MS;
+    t.deliver(sentence("s1", 1, "Bye."));
+    await flush();
+    expect(t.store.snapshot().notice).toBe("A transcrição da sua voz parou.");
   });
 });

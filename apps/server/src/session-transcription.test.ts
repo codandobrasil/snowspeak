@@ -141,4 +141,13 @@ describe("transcrição de ponta a ponta", () => {
     expect(hub.channel("them").finalizes).toBe(0);
     expect(hub.channel("me").finalizes).toBe(0);
   });
+  it("o aviso de queda do STT diz qual transcrição parou", async () => {
+    const { hub, client } = await setup();
+    hub.channel("me").fail();
+    const error = await client.waitFor((m) => m.type === "error");
+    expect(error).toMatchObject({ channel: "me", message: "A transcrição da sua voz parou: a conexão com o provedor caiu." });
+    hub.channel("them").fail();
+    const second = await client.waitFor((m) => m.type === "error" && m.channel === "them");
+    expect(second).toMatchObject({ message: "A transcrição dos participantes parou: a conexão com o provedor caiu." });
+  });
 });

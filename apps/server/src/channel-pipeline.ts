@@ -111,7 +111,7 @@ export class ChannelPipeline {
       code: "stt_connection_lost",
       retryable: false,
       channel: this.deps.channel,
-      message: "A transcrição parou: a conexão com o provedor caiu.",
+      message: `A transcrição ${this.deps.channel === "them" ? "dos participantes" : "da sua voz"} parou: a conexão com o provedor caiu.`,
     });
   }
 

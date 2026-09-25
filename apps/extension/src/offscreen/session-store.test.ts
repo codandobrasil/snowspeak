@@ -214,4 +214,9 @@ describe("falas", () => {
     expect(state.status).toBe("stopping");
     expect(state.channels.them.level).toBe(0);
   });
+  it("clear-notice apaga só o aviso indicado", () => {
+    const state = run({ type: "notice", message: "A" });
+    expect(reduce(state, { type: "clear-notice", message: "A" }).notice).toBeNull();
+    expect(reduce(state, { type: "clear-notice", message: "B" })).toBe(state);
+  });
 });
