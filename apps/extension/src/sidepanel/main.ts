@@ -4,9 +4,11 @@ import { initialState, type Caption, type SessionState, type SessionStatus } fro
 import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";
 import { prepareChromeTranslator } from "../translation/chrome-translator";
 import { captionView } from "./caption-view";
+import { captionEmphasis, captionLines, isCaptureMode, type CaptionEmphasis } from "./panel-view";
 import { waitForTranslator } from "./translator-wait";
 
 const DEFAULT_SETTINGS: PanelStartParams = { serverUrl: "ws://localhost:8787/ws", token: "", mode: "work", context: "" };
+const DEFAULT_PREFERENCES = { portugueseOnly: false, widthHintDismissed: false };
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
   idle: "Parado",
@@ -36,6 +38,9 @@ const micPermissionNotice = byId<HTMLParagraphElement>("mic-permission");
 const grantMicButton = byId<HTMLButtonElement>("grant-mic");
 const settingsPanel = byId<HTMLDetailsElement>("settings");
 const captionsList = byId<HTMLOListElement>("captions");
+const portugueseOnlyButton = byId<HTMLButtonElement>("portuguese-only");
+const widthHint = byId<HTMLParagraphElement>("width-hint");
+const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
 
 contextInput.maxLength = MAX_CONTEXT_CHARS;
 
@@ -46,6 +51,7 @@ let pendingStart = false;
 let startAttempt = 0;
 let translatorDownload: AbortController | null = null;
 let skipTranslatorWait: (() => void) | null = null;
+let portugueseOnly = false;
 
 const captionItems = new Map<string, HTMLLIElement>();
 
@@ -58,13 +64,19 @@ function createCaptionItem(caption: Caption): HTMLLIElement {
   return item;
 }
 
-function fillCaptionItem(item: HTMLLIElement, caption: Caption): void {
+function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: CaptionEmphasis): void {
   const view = captionView(caption);
+  const lines = captionLines(view, caption.channel, portugueseOnly);
+  item.classList.toggle("current", emphasis === "current");
+  item.classList.toggle("previous", emphasis === "previous");
   (item.querySelector(".speaker") as HTMLElement).textContent = view.speaker;
+  const english = item.querySelector(".english") as HTMLElement;
+  english.hidden = !lines.showEnglish;
+  english.classList.toggle("placeholder", lines.englishIsPlaceholder);
   (item.querySelector(".final") as HTMLElement).textContent = view.english;
   (item.querySelector(".partial") as HTMLElement).textContent = view.partial;
   const portuguese = item.querySelector(".portuguese") as HTMLElement;
-  portuguese.hidden = caption.channel === "me" || (!view.portuguese && !view.translating && !view.translationFailed);
+  portuguese.hidden = !lines.showPortuguese;
   portuguese.classList.toggle("pending", !view.portuguese && view.translating);
   portuguese.classList.toggle("failed", !view.portuguese && view.translationFailed);
   portuguese.textContent = view.portuguese || (view.translating ? "traduzindo…" : view.translationFailed ? "tradução indisponível" : "");
@@ -74,7 +86,7 @@ function fillCaptionItem(item: HTMLLIElement, caption: Caption): void {
 function renderCaptions(captions: Caption[]): void {
   const nearBottom = captionsList.scrollHeight - captionsList.scrollTop - captionsList.clientHeight < 60;
   const alive = new Set<string>();
-  for (const caption of captions) {
+  captions.forEach((caption, index) => {
     alive.add(caption.utteranceId);
     let item = captionItems.get(caption.utteranceId);
     if (!item) {
@@ -82,8 +94,8 @@ function renderCaptions(captions: Caption[]): void {
       captionItems.set(caption.utteranceId, item);
       captionsList.append(item);
     }
-    fillCaptionItem(item, caption);
-  }
+    fillCaptionItem(item, caption, captionEmphasis(captions, index));
+  });
   for (const [id, item] of captionItems) {
     if (alive.has(id)) continue;
     item.remove();
@@ -96,6 +108,8 @@ function renderCaptions(captions: Caption[]): void {
 function render(): void {
   const state = lastState;
   const active = pendingStart || state.status === "starting" || state.status === "running";
+  document.body.classList.toggle("capturing", isCaptureMode(state.status, pendingStart));
+  portugueseOnlyButton.setAttribute("aria-pressed", String(portugueseOnly));
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
   startButton.disabled = active || state.status === "stopping";
   stopButton.disabled = !active;
@@ -110,6 +124,8 @@ function render(): void {
     const section = document.querySelector<HTMLElement>(`[data-channel="${channel}"]`);
     if (!section) continue;
     (section.querySelector(".bar") as HTMLElement).style.width = `${Math.min(100, view.level * 300)}%`;
+    const dot = document.querySelector<HTMLElement>(`[data-dot="${channel}"]`);
+    if (dot) dot.style.opacity = String(0.2 + Math.min(0.8, view.level * 4));
     (section.querySelector(".stats") as HTMLElement).textContent =
       `${view.sentFrames} frames · ${view.droppedFrames} descartados · ${(view.lostMs / 1000).toFixed(1)} s perdidos`;
   }
@@ -117,7 +133,8 @@ function render(): void {
 }
 
 function applyState(state: SessionState): void {
-  if (state.status === "starting" && lastState.status !== "starting") settingsPanel.open = false;
+  // Ao voltar para Parado, as configurações aparecem abertas de novo.
+  if (!isCaptureMode(state.status, pendingStart) && isCaptureMode(lastState.status, false)) settingsPanel.open = true;
   lastState = state;
   render();
 }
@@ -152,6 +169,13 @@ async function loadSettings(): Promise<void> {
   tokenInput.value = settings.token;
   modeSelect.value = settings.mode;
   contextInput.value = settings.context;
+}
+
+async function loadPreferences(): Promise<void> {
+  const preferences = (await chrome.storage.local.get(DEFAULT_PREFERENCES)) as typeof DEFAULT_PREFERENCES;
+  portugueseOnly = preferences.portugueseOnly;
+  widthHint.hidden = preferences.widthHintDismissed;
+  render();
 }
 
 async function refreshMicPermission(): Promise<void> {
@@ -243,6 +267,17 @@ stopButton.addEventListener("click", () => {
   chrome.runtime.sendMessage({ target: "background", type: "stop" } satisfies RuntimeMessage).catch(() => undefined);
 });
 
+portugueseOnlyButton.addEventListener("click", () => {
+  portugueseOnly = !portugueseOnly;
+  void chrome.storage.local.set({ portugueseOnly });
+  render();
+});
+
+dismissWidthHintButton.addEventListener("click", () => {
+  widthHint.hidden = true;
+  void chrome.storage.local.set({ widthHintDismissed: true });
+});
+
 skipTranslatorButton.addEventListener("click", () => {
   skipTranslatorWait?.();
 });
@@ -257,6 +292,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage) => {
 
 render();
 void loadSettings();
+void loadPreferences();
 void refreshMicPermission();
 // Ao reabrir o painel, reconstrói a tela a partir do offscreen (se existir).
 chrome.runtime.sendMessage({ target: "offscreen", type: "get-state" } satisfies RuntimeMessage).then(

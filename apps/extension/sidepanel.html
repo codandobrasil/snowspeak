@@ -31,7 +31,16 @@
       <button id="start">Iniciar</button>
       <button id="stop" disabled>Parar</button>
       <button id="skip-translator" hidden>Continuar só em inglês</button>
+      <button id="portuguese-only" class="toggle" aria-pressed="false" title="Mostrar só a tradução das falas dos participantes">Só português</button>
+      <span class="dots" aria-hidden="true">
+        <span class="dot" data-dot="them" title="Participantes"></span>
+        <span class="dot" data-dot="me" title="Você"></span>
+      </span>
     </div>
+
+    <p id="width-hint" class="hint" hidden>
+      Dica: arraste a borda esquerda do painel para alargá-lo. <button id="dismiss-width-hint" class="link">ok</button>
+    </p>
 
     <p id="mic-permission" class="notice" hidden>
       O microfone ainda não foi liberado. <button id="grant-mic">Liberar microfone</button>

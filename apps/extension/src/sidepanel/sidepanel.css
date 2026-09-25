@@ -78,3 +78,30 @@ p { margin: 0; }
 .caption .portuguese.pending { color: var(--muted); font-style: italic; font-size: 12px; }
 .caption .portuguese.failed { color: var(--warning); font-size: 12px; }
 .caption .interrupted { color: var(--muted); font-size: 11px; }
+
+/* Modo captura: sem configurações e medidores, a legenda ocupa o painel. */
+body.capturing .settings,
+body.capturing .meters {
+  display: none;
+}
+
+.actions { align-items: center; flex-wrap: wrap; }
+.toggle[aria-pressed="true"] { background: var(--translation); color: #0b1a0b; border-color: var(--translation); }
+.dots { display: none; gap: 6px; margin-left: auto; }
+body.capturing .dots { display: inline-flex; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.2; transition: opacity 120ms linear; }
+.dot[data-dot="me"] { background: var(--me); }
+
+.hint { color: var(--muted); font-size: 12px; }
+.link { background: none; border: none; color: var(--accent); padding: 0 4px; cursor: pointer; }
+
+/* Fala atual em destaque; anteriores menores e esmaecidas. */
+.caption.previous { opacity: 0.55; }
+.caption.previous .english,
+.caption.previous .portuguese { font-size: 13px; }
+.caption.current .english,
+.caption.current .portuguese { font-size: 18px; }
+.caption .english.placeholder { color: var(--muted); font-size: 13px; }
+.caption-me { margin-left: 15%; background: transparent; border: 1px solid var(--border); border-left: 3px solid var(--me); }
+.caption-me .english { font-size: 13px; }
+.caption-me.current .english { font-size: 14px; }
