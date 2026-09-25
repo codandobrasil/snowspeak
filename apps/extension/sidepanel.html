@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>SnowSpeak</title>
+    <link rel="stylesheet" href="/src/sidepanel/sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <h1>SnowSpeak</h1>
+      <span id="status" class="status">Parado</span>
+    </header>
+
+    <section class="settings">
+      <label>Servidor <input id="serverUrl" type="url" /></label>
+      <label>Chave de acesso <input id="token" type="password" autocomplete="off" /></label>
+      <label>
+        Modo
+        <select id="mode">
+          <option value="work">Trabalho</option>
+          <option value="sales">Vendas</option>
+          <option value="interview">Entrevista</option>
+          <option value="relationship">Relacionamento</option>
+        </select>
+      </label>
+      <label>Contexto <textarea id="context" rows="3"></textarea></label>
+    </section>
+
+    <div class="actions">
+      <button id="start">Iniciar</button>
+      <button id="stop" disabled>Parar</button>
+    </div>
+
+    <p id="mic-permission" class="notice" hidden>
+      O microfone ainda não foi liberado. <button id="grant-mic">Liberar microfone</button>
+    </p>
+    <p id="local-error" class="error" hidden></p>
+    <p id="error" class="error" hidden></p>
+    <p id="mic-denied" class="warning" hidden>Sugestões sem suas falas: microfone indisponível.</p>
+
+    <section class="channel" data-channel="them">
+      <h2>Participantes</h2>
+      <div class="meter"><div class="bar"></div></div>
+      <p class="stats"></p>
+      <p class="partial"></p>
+    </section>
+
+    <section class="channel" data-channel="me">
+      <h2>Você</h2>
+      <div class="meter"><div class="bar"></div></div>
+      <p class="stats"></p>
+      <p class="partial"></p>
+    </section>
+
+    <script type="module" src="/src/sidepanel/main.ts"></script>
+  </body>
+</html>
