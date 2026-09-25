@@ -14,6 +14,23 @@
 - Ordem: marcos 3 e 4 antes do marco 2. Não há reconexão/retomada nem medição de uso neste plano; a queda do socket continua encerrando a sessão, como no marco 1.
 - Tradução: o spec previa DeepL no servidor. O DeepL gratuito não está disponível para o usuário e ele quer custo zero; um teste (spike) confirmou a Translator API do Chrome nesta máquina: `create` em 1–80 ms, tradução em 15–28 ms, funciona no offscreen sem clique depois que o modelo foi baixado. O servidor passa a emitir `sentence.ready`; o evento `translation` do spec deixa de vir do servidor. Um tradutor de reserva no servidor fica para depois.
 
+## Revisão 2 — correções aprovadas (prevalecem sobre o código das tasks)
+
+Execução: nativa, com revisão independente ao final. Onde uma correção conflita com um bloco de código de uma task, vale a correção; o código final no repositório é a referência.
+
+| # | Task | Correção |
+|---|---|---|
+| R1 | 5, 7 | **Parar gracioso nos dois lados.** Servidor: `drain()` chama `Finalize` sempre que algum áudio já foi enviado ao STT (não só com fala aberta) e espera até 500 ms por um resultado `from_finalize` ou pelo fechamento da fala. Cliente: `stop()` com sessão iniciada para as capturas, envia `session.stop`, **mantém o socket recebendo** (status `stopping`, "Finalizando…") e espera `session.ended` + `4410`; prazo de segurança `STOP_TIMEOUT_MS = 3000`, depois fecha e vai para Parado. Sem sessão iniciada, `stop()` libera na hora como antes. Testes: parar antes do primeiro parcial (servidor); stop mantém socket e aplica eventos até `session.ended`; prazo de segurança (cliente). |
+| R2 | 6, 7 | **Tradução presa à sessão.** As ações `sentence-translated`/`sentence-translation-failed` levam `sessionId`; o store ignora as de outra sessão. A fila guarda o `sessionId` de cada trabalho, descarta resultados de sessões anteriores, libera (`destroy`) o tradutor anterior ao iniciar uma nova sessão e limita a **20 trabalhos pendentes** (excedente marcado como falha). Teste: tradução atrasada da sessão anterior não preenche `them-1` da sessão nova. |
+| R3 | 2 | **UtteranceEnd atrasado com fala nova só parcial.** O montador guarda o fim do último segmento da fala encerrada (`lastClosedEnd`); `UtteranceEnd` com `last_word_end ≤ lastClosedEnd` é ignorado mesmo que a fala nova ainda não tenha segmento. Teste com a sequência exata: segmento final → parcial da fala nova → `UtteranceEnd` antigo. |
+| R4 | 7, 8 | **Download do tradutor cancelável.** `prepareChromeTranslator(onProgress, signal)` repassa `signal` ao `Translator.create` e devolve `"cancelled"` quando abortado. No painel, durante o download aparecem o progresso e o botão "Continuar só em inglês" (segue sem esperar; o download continua); Parar aborta o download e cancela o início. Depois da espera, o painel confere que a tentativa ainda vale antes de pedir a captura. |
+| R5 | 4 | **Congestionamento servidor → Deepgram.** Descarta o frame quando `bufferedAmount` > 32 KB (~1 s de áudio) e conta os descartes (`droppedFrames`, registrado no log ao fechar); prazo de abertura `DEEPGRAM_OPEN_TIMEOUT_MS = 5000` → `onError`. Testes: servidor que não responde ao handshake; servidor que para de ler. |
+| R6 | 5 | **Latência pelo áudio realmente encaminhado.** `ForwardClock` registra, por frame enviado ao STT, o total de samples encaminhados e o horário; a latência de um segmento é `agora − horário em que o sample end×16000 foi encaminhado`. O log a chama de **estimativa** e ela não é usada para comprovar a meta. |
+
+Esclarecimentos de escopo: "~20 ms por frase" foi o resultado do teste nesta máquina com o modelo já baixado, não uma garantia; `targetLanguage: "pt"` pede português e a qualidade em PT-BR é validada com exemplos no roteiro; a Translator API é só para Chrome desktop e traduz em sequência; o benefício é não haver cobrança por tradução — Deepgram e hospedagem continuam sendo custos do produto.
+
+Testes prioritários: parar antes do primeiro parcial; tradução concluída após troca de sessão; fim de fala atrasado; cancelamento durante o download.
+
 ## Global Constraints
 
 - Deepgram: `model=nova-3`, `encoding=linear16`, `sample_rate=16000`, `channels=1`, `interim_results=true`, `smart_format=true`, `punctuate=true`, `endpointing=300`, `utterance_end_ms=1000`; canal `them` com `language=en`, canal `me` com `language=multi`. Autenticação `Authorization: Token <chave>`. Controle: `{"type":"Finalize"}`, `{"type":"CloseStream"}`.
