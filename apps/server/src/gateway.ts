@@ -59,6 +59,7 @@ function toBytes(data: RawData): Uint8Array {
 
 function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps): void {
   let session: Session | null = null;
+  let stopping = false;
   let rejectedFrames = 0;
 
   const send = (message: ServerMessage): void => {
@@ -72,6 +73,7 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
         ws.close(CLOSE_CODES.protocolError, "audio before session");
         return;
       }
+      if (stopping) return;
       const decoded = decodeFrame(toBytes(data));
       if (!decoded.ok || !session.acceptFrame(decoded.frame)) rejectedFrames += 1;
       return;
@@ -93,11 +95,17 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
       return;
     }
 
+    if (stopping) return;
+
     if (message?.type === "session.stop") {
-      send({ v: 1, type: "session.ended", sessionId: session.id, reason: "stopped" });
-      session.close();
-      session = null;
-      ws.close(CLOSE_CODES.sessionEnded, "stopped");
+      stopping = true;
+      const current = session;
+      // Entrega as últimas palavras e frases antes de encerrar.
+      void current.drain().finally(() => {
+        send({ v: 1, type: "session.ended", sessionId: current.id, reason: "stopped" });
+        current.close();
+        ws.close(CLOSE_CODES.sessionEnded, "stopped");
+      });
       return;
     }
 

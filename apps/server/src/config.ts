@@ -4,6 +4,7 @@ export interface ServerConfig {
   accessKeys: Set<string>;
   allowedOrigins: Set<string>;
   authTimeoutMs: number;
+  deepgramApiKey: string | null;
 }
 
 function parseList(value: string | undefined): Set<string> {
@@ -27,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     accessKeys,
     allowedOrigins,
     authTimeoutMs: 5_000,
+    deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() || null,
   };
 }

@@ -1,15 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import {
-  frameSamples,
-  samplesToMs,
-  type AudioFrame,
-  type Channel,
-  type Mode,
-  type ServerEventBody,
-  type ServerMessage,
-} from "@snowspeak/shared";
-import { ChannelSequencer } from "./channel-sequencer";
-import type { SttFactory, SttResult, SttStream } from "./stt/types";
+import type { AudioFrame, Channel, Mode, ServerEventBody, ServerMessage } from "@snowspeak/shared";
+import { ChannelPipeline } from "./channel-pipeline";
+import { LatencyStats, formatLatency } from "./latency";
+import type { SttFactory } from "./stt/types";
 
 export interface SessionDeps {
   sttFactory: SttFactory;
@@ -21,39 +14,42 @@ export class Session {
   readonly id = randomUUID();
   readonly resumeToken = randomBytes(32).toString("base64url");
   private seq = 0;
-  private readonly stt: Record<Channel, SttStream>;
-  private readonly sequencers: Record<Channel, ChannelSequencer> = { them: new ChannelSequencer(), me: new ChannelSequencer() };
+  private closed = false;
+  private readonly sttLatency = new LatencyStats();
+  private readonly pipelines: Record<Channel, ChannelPipeline>;
 
   constructor(
     private readonly deps: SessionDeps,
     readonly mode: Mode,
     readonly context: string,
   ) {
-    this.stt = {
-      them: deps.sttFactory("them", { onResult: (result) => this.onSttResult("them", result), onError: () => {} }),
-      me: deps.sttFactory("me", { onResult: (result) => this.onSttResult("me", result), onError: () => {} }),
-    };
+    const now = deps.now ?? Date.now;
+    const pipeline = (channel: Channel): ChannelPipeline =>
+      new ChannelPipeline({
+        channel,
+        sttFactory: deps.sttFactory,
+        splitSentences: channel === "them",
+        emit: (body) => this.emit(body),
+        sttLatency: this.sttLatency,
+        now,
+      });
+    this.pipelines = { them: pipeline("them"), me: pipeline("me") };
   }
 
-  /** Retorna false quando o frame é duplicado ou sobrepõe áudio já aceito. */
   acceptFrame(frame: AudioFrame): boolean {
-    const result = this.sequencers[frame.channel].accept(frame.frameSeq, frame.sampleOffset, frameSamples(frame));
-    if (!result.accepted) return false;
-    if (result.gapSamples > 0) {
-      this.emit({ type: "audio.gap", channel: frame.channel, durationMs: samplesToMs(result.gapSamples), reason: "client_drop" });
-    }
-    this.stt[frame.channel].write(frame.pcm);
-    return true;
+    return this.pipelines[frame.channel].acceptFrame(frame);
+  }
+
+  async drain(): Promise<void> {
+    await Promise.all([this.pipelines.them.drain(), this.pipelines.me.drain()]);
   }
 
   close(): void {
-    this.stt.them.close();
-    this.stt.me.close();
-  }
-
-  private onSttResult(channel: Channel, result: SttResult): void {
-    if (result.kind !== "partial") return; // substituído pelo pipeline na Task 5
-    this.emit({ type: "transcript.partial", channel, utteranceId: `${channel}-1`, text: result.text });
+    if (this.closed) return;
+    this.closed = true;
+    this.pipelines.them.close();
+    this.pipelines.me.close();
+    console.info(`sessão ${this.id.slice(0, 8)} encerrada · ${formatLatency("latência estimada do STT (segmento final)", this.sttLatency)}`);
   }
 
   private emit(body: ServerEventBody): void {

@@ -1,10 +1,12 @@
 import { loadConfig } from "./config";
 import { startGateway } from "./gateway";
-import { createFakeSttFactory } from "./stt/fake-stt";
+import { createProviders } from "./providers";
 
 const config = loadConfig();
-const gateway = await startGateway(config, { sttFactory: createFakeSttFactory() });
+const providers = createProviders(config);
+const gateway = await startGateway(config, { sttFactory: providers.sttFactory });
 console.log(`SnowSpeak server ouvindo em ${config.host}:${config.port} (ws em /ws, tom de teste em /tone)`);
+console.log(providers.description);
 
 const shutdown = (): void => {
   void gateway.close().then(() => process.exit(0));
