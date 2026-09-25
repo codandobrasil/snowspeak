@@ -1,12 +1,21 @@
 import type { RuntimeMessage } from "../messaging";
+import { createChromeTranslator } from "../translation/chrome-translator";
 import { captureMic, captureTab } from "./capture";
 import { handleOffscreenMessage } from "./message-handler";
 import { SessionController } from "./session-controller";
 import { SessionStore } from "./session-store";
 import { openBrowserSocket } from "./socket";
+import { TranslationQueue } from "./translation-queue";
 
 const store = new SessionStore();
-const controller = new SessionController({ store, captureTab, captureMic, openSocket: openBrowserSocket });
+const translations = new TranslationQueue(createChromeTranslator, store);
+const controller = new SessionController({
+  store,
+  captureTab,
+  captureMic,
+  openSocket: openBrowserSocket,
+  onServerMessage: (message) => translations.handle(message),
+});
 
 store.subscribe((state) => {
   const message: RuntimeMessage = { target: "sidepanel", type: "state", state };
