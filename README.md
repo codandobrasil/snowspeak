@@ -23,6 +23,7 @@ pnpm --filter @snowspeak/extension build
 2. Copie o ID da extensão exibido no card.
 3. `cp apps/server/.env.example apps/server/.env` e preencha `ALLOWED_ORIGINS=chrome-extension://<ID>` e uma chave em `ACCESS_KEYS`.
    Para transcrição real, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com → API Keys; a conta nova vem com crédito). Sem ela, o servidor usa o STT falso e avisa no log. A tradução não precisa de chave: roda no próprio Chrome (Translator API, Chrome 138+ para desktop).
+   Para sugestões de resposta reais, preencha `OPENROUTER_API_KEY` (openrouter.ai → Keys); o modelo fica em `SUGGESTION_MODEL` (padrão `anthropic/claude-haiku-4.5`). Sem a chave, o servidor usa sugestões falsas e avisa no log.
 4. `pnpm --filter @snowspeak/server dev`
 5. Na aba que você quer capturar, clique no ícone do SnowSpeak. O painel abre associado **a essa aba**. Informe a chave e clique em **Iniciar**.
 
@@ -86,4 +87,17 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [ ] Fechar e reabrir o painel mantém a legenda.
 - [ ] Chave do Deepgram errada (troque no `.env` e reinicie o servidor): aparece "A transcrição parou…" e a sessão segue capturando.
 - [ ] Ao parar, o log do servidor mostra a latência estimada do STT (`latência estimada do STT (segmento final) p50 …`).
+- [ ] Repetir numa chamada real do Google Meet.
+
+## Marco 5 — roteiro de validação (com a chave do OpenRouter)
+
+- [ ] O log do servidor mostra `sugestões: OpenRouter (anthropic/claude-haiku-4.5)`.
+- [ ] Nas configurações, preencher o currículo e a vaga e escolher o modo Entrevista (os campos ficam salvos).
+- [ ] Num vídeo de entrevista em inglês, quando a entrevistadora termina uma pergunta, a sugestão aparece sozinha em ~1–2 s no rodapé: curta, em inglês, com o português abaixo.
+- [ ] A sugestão usa o currículo (cita experiência real) e não inventa empresas ou números.
+- [ ] O botão "Sugerir resposta" e o atalho Alt+S pedem uma sugestão a qualquer momento.
+- [ ] Apertar Alt+S várias vezes rápido: aparece um aviso curto e fica uma sugestão só.
+- [ ] Duas perguntas seguidas: fica a sugestão da última.
+- [ ] Chave do OpenRouter errada (troque no `.env` e reinicie o servidor): o cartão mostra "serviço de IA indisponível" e a legenda segue normal.
+- [ ] Parar durante uma sugestão: nada fica gerando.
 - [ ] Repetir numa chamada real do Google Meet.
