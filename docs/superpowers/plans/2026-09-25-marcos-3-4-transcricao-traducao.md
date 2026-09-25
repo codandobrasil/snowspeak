@@ -1,12 +1,14 @@
-# Marcos 3 e 4 — Transcrição (Deepgram) e tradução (DeepL) Implementation Plan
+# Marcos 3 e 4 — Transcrição (Deepgram) e tradução (Google Cloud Translation) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Mostrar no painel, em tempo real, o que os participantes dizem em inglês (Deepgram) com a tradução PT-BR logo abaixo de cada frase (DeepL), e o que o usuário diz (sem tradução).
+**Goal:** Mostrar no painel, em tempo real, o que os participantes dizem em inglês (Deepgram) com a tradução PT-BR logo abaixo de cada frase (Google Cloud Translation), e o que o usuário diz (sem tradução).
 
-**Architecture:** O servidor troca o STT falso por uma conexão Deepgram por canal. Um `UtteranceAssembler` transforma os resultados em parcial → segmento estável → fim de fala; um `SentenceSplitter` decide quando uma frase do canal `them` está pronta e o `DeepLTranslator` a traduz. Tudo por canal fica num `ChannelPipeline`. Na extensão, o store passa a guardar as falas (captions) e o painel as exibe como legenda.
+**Architecture:** O servidor troca o STT falso por uma conexão Deepgram por canal. Um `UtteranceAssembler` transforma os resultados em parcial → segmento estável → fim de fala; um `SentenceSplitter` decide quando uma frase do canal `them` está pronta e o `GoogleTranslator` a traduz. Tudo por canal fica num `ChannelPipeline`. Na extensão, o store passa a guardar as falas (captions) e o painel as exibe como legenda.
 
-**Tech Stack:** o do marco 1 + Deepgram Nova-3 (WebSocket `wss://api.deepgram.com/v1/listen`), DeepL API v2 (`/v2/translate`).
+**Tech Stack:** o do marco 1 + Deepgram Nova-3 (WebSocket `wss://api.deepgram.com/v1/listen`), Google Cloud Translation Basic v2 (`https://translation.googleapis.com/language/translate/v2`).
+
+**Troca de provedor (decisão do usuário em 2026-09-25):** o spec cita DeepL, mas o DeepL API Free não está disponível para o usuário; a tradução usa Google Cloud Translation. O `Translator` continua uma interface trocável.
 
 **Spec:** `docs/superpowers/specs/2026-09-25-snowspeak-realtime-engine-design.md` — implementa §4.3 (eventos de transcrição/tradução), §4.4, §4.5, §7 (linhas de STT e tradução) e as métricas de latência de §1. **Ordem alterada pelo usuário em 2026-09-25:** marcos 3 e 4 antes do marco 2. Portanto não há reconexão/retomada nem medição de uso neste plano; a queda do socket continua encerrando a sessão, como no marco 1.
 
@@ -16,7 +18,7 @@
 - `is_final=false` → `transcript.partial`; `is_final=true` → `transcript.segment` (não é fim de fala); `speech_final=true` ou `UtteranceEnd` → `utterance.end`, **uma única vez** por `utteranceId`. `UtteranceEnd` com `last_word_end` anterior ao início da fala atual é ignorado.
 - Fechamento forçado: `Finalize`, espera até **500 ms**; segmento com `from_finalize` encerra a fala normalmente; sem resposta → `utterance.end { interrupted: true }`. Parcial pendente **nunca** vira segmento.
 - Tradução só no canal `them`. Frase enviada quando: termina com `.`, `?` ou `!` (seguido de espaço ou fim); **2,5 s** desde que o trecho pendente começou; **30 palavras**; ou `utterance.end`. `sentenceIdx` atribuído pelo servidor, estável, reinicia em 0 a cada fala.
-- DeepL: `POST /v2/translate`, `Authorization: DeepL-Auth-Key <chave>`, `source_lang=EN`, `target_lang=PT-BR`, `model_type=latency_optimized`, `context` = até 2 frases anteriores do canal. Chave terminada em `:fx` → `https://api-free.deepl.com`, senão `https://api.deepl.com`. Prazo de 5 s; **1 nova tentativa**; depois `translation.error`.
+- Google Cloud Translation Basic v2: `POST https://translation.googleapis.com/language/translate/v2`, chave no cabeçalho `X-goog-api-key` (nunca na URL), corpo `{ q: [texto], source: "en", target: "pt-BR", format: "text" }`, resposta `data.translations[0].translatedText`. A API não aceita contexto: o `Translator` recebe as 2 frases anteriores, mas o Google as ignora. Prazo de 5 s; **1 nova tentativa**; depois `translation.error`.
 - Sem chave de provedor → modo falso com aviso no log (STT com sonda de sinal do marco 1; tradução `[tradução falsa] …`).
 - Chaves só no servidor (`apps/server/.env`, fora do git). Logs sem conteúdo da conversa.
 - `utteranceId` = `${channel}-${n}`. O painel guarda no máximo **200 falas**.
@@ -26,7 +28,7 @@
 
 1. Participante fala sem pausa por muito tempo → a tradução sai a cada frase, ou a cada 2,5 s / 30 palavras, sem esperar o fim da fala (testes na Task 3).
 2. Deepgram recusa a chave ou cai no meio da sessão → a captura continua, a fala aberta fecha como interrompida e o painel avisa "A transcrição parou" (testes nas Tasks 4 e 6).
-3. DeepL fora do ar, lento ou sem cota (HTTP 456) → a frase fica só em inglês com aviso; nada trava (testes nas Tasks 5 e 6).
+3. Google Translation fora do ar, lento, chave inválida ou sem cota (HTTP 403/429) → a frase fica só em inglês com aviso; nada trava (testes nas Tasks 5 e 6).
 4. Usuário clica Parar no meio de uma frase → as últimas palavras são finalizadas e traduzidas antes de `session.ended` (teste na Task 6).
 5. Sessão longa com centenas de falas → o painel mantém só as 200 mais recentes e continua fluido (teste na Task 7).
 
@@ -45,7 +47,7 @@ apps/server/src/
   utterance-assembler.ts (+test)           parcial/segmento/fim de fala (puro)
   sentence-splitter.ts (+test)             quando uma frase está pronta (puro, timers)
   translate/translator.ts (+test)          interface Translator + translateWithRetry
-  translate/deepl-translator.ts (+test)    cliente HTTP do DeepL
+  translate/google-translator.ts (+test)   cliente HTTP do Google Cloud Translation
   translate/fake-translator.ts             tradução falsa para desenvolvimento
   latency.ts (+test)                       p50/p95
   channel-pipeline.ts                      por canal: sequência, STT, montagem, tradução
@@ -1109,17 +1111,17 @@ git commit -m "feat(server): cliente de streaming do Deepgram"
 
 ---
 
-### Task 5: Tradução com DeepL
+### Task 5: Tradução com Google Cloud Translation
 
 **Files:**
-- Create: `apps/server/src/translate/translator.ts`, `apps/server/src/translate/deepl-translator.ts`, `apps/server/src/translate/fake-translator.ts`
-- Test: `apps/server/src/translate/translator.test.ts`, `apps/server/src/translate/deepl-translator.test.ts`
+- Create: `apps/server/src/translate/translator.ts`, `apps/server/src/translate/google-translator.ts`, `apps/server/src/translate/fake-translator.ts`
+- Test: `apps/server/src/translate/translator.test.ts`, `apps/server/src/translate/google-translator.test.ts`
 
 **Interfaces:**
 - Produces:
   - `interface Translator { translate(text: string, context: string): Promise<string> }`
   - `translateWithRetry(translator: Translator, text: string, context: string): Promise<string>` (1 nova tentativa)
-  - `DEEPL_TIMEOUT_MS = 5000`, `deeplBaseUrl(apiKey: string): string`, `createDeepLTranslator(options: { apiKey: string; baseUrl?: string; timeoutMs?: number }): Translator`
+  - `GOOGLE_TRANSLATE_URL`, `TRANSLATE_TIMEOUT_MS = 5000`, `createGoogleTranslator(options: { apiKey: string; url?: string; timeoutMs?: number }): Translator`
   - `createFakeTranslator(): Translator`
 
 - [ ] **Step 1: Escrever os testes**
@@ -1163,13 +1165,13 @@ describe("translateWithRetry", () => {
 });
 ```
 
-Criar `apps/server/src/translate/deepl-translator.test.ts`:
+Criar `apps/server/src/translate/google-translator.test.ts`:
 
 ```ts
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDeepLTranslator, deeplBaseUrl } from "./deepl-translator";
+import { createGoogleTranslator } from "./google-translator";
 
 interface Captured {
   url: string;
@@ -1179,7 +1181,7 @@ interface Captured {
 
 let server: Server | null = null;
 
-async function startFakeDeepL(respond: (captured: Captured) => { status: number; body?: unknown; hang?: boolean }) {
+async function startFakeGoogle(respond: (captured: Captured) => { status: number; body?: unknown; hang?: boolean }) {
   const requests: Captured[] = [];
   server = createServer((req, res) => {
     let raw = "";
@@ -1193,8 +1195,10 @@ async function startFakeDeepL(respond: (captured: Captured) => { status: number;
     });
   });
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-  return { baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests };
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/language/translate/v2`, requests };
 }
+
+const ok = (translatedText: string) => ({ status: 200, body: { data: { translations: [{ translatedText }] } } });
 
 afterEach(async () => {
   server?.closeAllConnections();
@@ -1202,47 +1206,30 @@ afterEach(async () => {
   server = null;
 });
 
-describe("DeepLTranslator", () => {
-  it("escolhe o endereço da API pela chave", () => {
-    expect(deeplBaseUrl("abc:fx")).toBe("https://api-free.deepl.com");
-    expect(deeplBaseUrl("abc")).toBe("https://api.deepl.com");
-  });
-
-  it("envia texto, idiomas, modelo de baixa latência e contexto", async () => {
-    const fake = await startFakeDeepL(() => ({ status: 200, body: { translations: [{ text: "Olá.", detected_source_language: "EN" }] } }));
-    const translator = createDeepLTranslator({ apiKey: "key:fx", baseUrl: fake.baseUrl });
-    await expect(translator.translate("Hello.", "We met yesterday.")).resolves.toBe("Olá.");
+describe("GoogleTranslator", () => {
+  it("envia o texto de inglês para português do Brasil com a chave no cabeçalho", async () => {
+    const fake = await startFakeGoogle(() => ok("Olá, tudo bem?"));
+    const translator = createGoogleTranslator({ apiKey: "google-key", url: fake.url });
+    await expect(translator.translate("Hi, how are you?", "We met yesterday.")).resolves.toBe("Olá, tudo bem?");
     const request = fake.requests[0]!;
-    expect(request.url).toBe("/v2/translate");
-    expect(request.headers.authorization).toBe("DeepL-Auth-Key key:fx");
-    expect(request.body).toEqual({
-      text: ["Hello."],
-      source_lang: "EN",
-      target_lang: "PT-BR",
-      model_type: "latency_optimized",
-      context: "We met yesterday.",
-    });
+    expect(request.url).toBe("/language/translate/v2");
+    expect(request.headers["x-goog-api-key"]).toBe("google-key");
+    expect(request.body).toEqual({ q: ["Hi, how are you?"], source: "en", target: "pt-BR", format: "text" });
   });
 
-  it("não envia contexto vazio", async () => {
-    const fake = await startFakeDeepL(() => ({ status: 200, body: { translations: [{ text: "Oi." }] } }));
-    await createDeepLTranslator({ apiKey: "k", baseUrl: fake.baseUrl }).translate("Hi.", "");
-    expect(fake.requests[0]?.body).not.toHaveProperty("context");
-  });
-
-  it("falha com o status quando a API recusa (ex.: cota esgotada)", async () => {
-    const fake = await startFakeDeepL(() => ({ status: 456, body: { message: "Quota exceeded" } }));
-    await expect(createDeepLTranslator({ apiKey: "k", baseUrl: fake.baseUrl }).translate("Hi.", "")).rejects.toThrow("456");
+  it("falha com o status quando a API recusa (chave inválida, cota)", async () => {
+    const fake = await startFakeGoogle(() => ({ status: 403, body: { error: { message: "API key not valid" } } }));
+    await expect(createGoogleTranslator({ apiKey: "k", url: fake.url }).translate("Hi.", "")).rejects.toThrow("403");
   });
 
   it("falha quando a resposta não traz tradução", async () => {
-    const fake = await startFakeDeepL(() => ({ status: 200, body: { translations: [] } }));
-    await expect(createDeepLTranslator({ apiKey: "k", baseUrl: fake.baseUrl }).translate("Hi.", "")).rejects.toThrow();
+    const fake = await startFakeGoogle(() => ({ status: 200, body: { data: { translations: [] } } }));
+    await expect(createGoogleTranslator({ apiKey: "k", url: fake.url }).translate("Hi.", "")).rejects.toThrow();
   });
 
   it("desiste quando a API não responde no prazo", async () => {
-    const fake = await startFakeDeepL(() => ({ status: 200, hang: true }));
-    await expect(createDeepLTranslator({ apiKey: "k", baseUrl: fake.baseUrl, timeoutMs: 50 }).translate("Hi.", "")).rejects.toThrow();
+    const fake = await startFakeGoogle(() => ({ status: 200, hang: true }));
+    await expect(createGoogleTranslator({ apiKey: "k", url: fake.url, timeoutMs: 50 }).translate("Hi.", "")).rejects.toThrow();
   });
 });
 ```
@@ -1258,7 +1245,7 @@ Criar `apps/server/src/translate/translator.ts`:
 
 ```ts
 export interface Translator {
-  /** `context` são frases anteriores que ajudam a tradução mas não são traduzidas. */
+  /** `context` são frases anteriores; provedores que aceitam contexto o usam sem traduzi-lo. */
   translate(text: string, context: string): Promise<string>;
 }
 
@@ -1271,41 +1258,32 @@ export async function translateWithRetry(translator: Translator, text: string, c
 }
 ```
 
-Criar `apps/server/src/translate/deepl-translator.ts`:
+Criar `apps/server/src/translate/google-translator.ts`:
 
 ```ts
 import type { Translator } from "./translator";
 
-export const DEEPL_TIMEOUT_MS = 5_000;
+export const GOOGLE_TRANSLATE_URL = "https://translation.googleapis.com/language/translate/v2";
+export const TRANSLATE_TIMEOUT_MS = 5_000;
 
-export function deeplBaseUrl(apiKey: string): string {
-  return apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
-}
-
-export function createDeepLTranslator(options: { apiKey: string; baseUrl?: string; timeoutMs?: number }): Translator {
-  const baseUrl = options.baseUrl ?? deeplBaseUrl(options.apiKey);
+// Cloud Translation Basic v2. Não aceita contexto: o parâmetro da interface é ignorado aqui.
+export function createGoogleTranslator(options: { apiKey: string; url?: string; timeoutMs?: number }): Translator {
+  const url = options.url ?? GOOGLE_TRANSLATE_URL;
 
   return {
-    async translate(text, context) {
-      const body: Record<string, unknown> = {
-        text: [text],
-        source_lang: "EN",
-        target_lang: "PT-BR",
-        model_type: "latency_optimized",
-      };
-      if (context) body.context = context;
-
-      const response = await fetch(`${baseUrl}/v2/translate`, {
+    async translate(text) {
+      const response = await fetch(url, {
         method: "POST",
-        headers: { Authorization: `DeepL-Auth-Key ${options.apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(options.timeoutMs ?? DEEPL_TIMEOUT_MS),
+        // Chave no cabeçalho, nunca na URL (URLs acabam em logs).
+        headers: { "X-goog-api-key": options.apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ q: [text], source: "en", target: "pt-BR", format: "text" }),
+        signal: AbortSignal.timeout(options.timeoutMs ?? TRANSLATE_TIMEOUT_MS),
       });
-      if (!response.ok) throw new Error(`DeepL respondeu HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`Google Translation respondeu HTTP ${response.status}`);
 
-      const data = (await response.json()) as { translations?: Array<{ text?: unknown }> };
-      const translated = data.translations?.[0]?.text;
-      if (typeof translated !== "string") throw new Error("DeepL: resposta sem tradução");
+      const data = (await response.json()) as { data?: { translations?: Array<{ translatedText?: unknown }> } };
+      const translated = data.data?.translations?.[0]?.translatedText;
+      if (typeof translated !== "string") throw new Error("Google Translation: resposta sem tradução");
       return translated;
     },
   };
@@ -1317,7 +1295,7 @@ Criar `apps/server/src/translate/fake-translator.ts`:
 ```ts
 import type { Translator } from "./translator";
 
-// Usado sem DEEPL_API_KEY: deixa visível no painel que a tradução não é real.
+// Usado sem GOOGLE_TRANSLATE_API_KEY: deixa visível no painel que a tradução não é real.
 export function createFakeTranslator(): Translator {
   return {
     translate: (text) => Promise.resolve(`[tradução falsa] ${text}`),
@@ -1328,13 +1306,13 @@ export function createFakeTranslator(): Translator {
 - [ ] **Step 4: Rodar os testes**
 
 Run: `pnpm test apps/server/src/translate && pnpm --filter @snowspeak/server typecheck`
-Expected: PASS (9 testes) e typecheck sem erros.
+Expected: PASS (7 testes) e typecheck sem erros.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/translate
-git commit -m "feat(server): tradução EN→PT-BR com DeepL e nova tentativa"
+git commit -m "feat(server): tradução EN→PT-BR com Google Cloud Translation e nova tentativa"
 ```
 
 ---
@@ -1353,7 +1331,7 @@ git commit -m "feat(server): tradução EN→PT-BR com DeepL e nova tentativa"
   - `FINALIZE_WAIT_MS = 500`, `TRANSLATION_DRAIN_MS = 2000`, `class ChannelPipeline { constructor(deps); acceptFrame(frame): boolean; drain(): Promise<void>; close(): void }`
   - `Session { acceptFrame(frame): boolean; drain(): Promise<void>; close(): void }` com `SessionDeps { sttFactory; translator: Translator | null; send; now? }`
   - `GatewayDeps { sttFactory: SttFactory; translator: Translator | null }`
-  - `ServerConfig` + `deepgramApiKey: string | null`, `deeplApiKey: string | null`
+  - `ServerConfig` + `deepgramApiKey: string | null`, `googleTranslateApiKey: string | null`
   - `createProviders(config): { sttFactory; translator; description: string }`
   - `createScriptedSttHub(): { factory: SttFactory; channel(c: Channel): ScriptedChannel }`
 
@@ -1401,12 +1379,12 @@ const base = { ACCESS_KEYS: "k", ALLOWED_ORIGINS: "chrome-extension://x" };
 describe("createProviders", () => {
   it("usa provedores falsos quando faltam as chaves", () => {
     const providers = createProviders(loadConfig(base));
-    expect(providers.description).toBe("STT: falso (sem DEEPGRAM_API_KEY) · tradução: falsa (sem DEEPL_API_KEY)");
+    expect(providers.description).toBe("STT: falso (sem DEEPGRAM_API_KEY) · tradução: falsa (sem GOOGLE_TRANSLATE_API_KEY)");
   });
 
-  it("usa Deepgram e DeepL quando as chaves existem", () => {
-    const providers = createProviders(loadConfig({ ...base, DEEPGRAM_API_KEY: "dg", DEEPL_API_KEY: "dl:fx" }));
-    expect(providers.description).toBe("STT: Deepgram · tradução: DeepL");
+  it("usa Deepgram e Google Translation quando as chaves existem", () => {
+    const providers = createProviders(loadConfig({ ...base, DEEPGRAM_API_KEY: "dg", GOOGLE_TRANSLATE_API_KEY: "gt" }));
+    expect(providers.description).toBe("STT: Deepgram · tradução: Google Translation");
   });
 });
 ```
@@ -1415,9 +1393,9 @@ Em `apps/server/src/config.test.ts`, acrescentar:
 
 ```ts
   it("lê as chaves dos provedores e trata vazio como ausente", () => {
-    const config = loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: " dg ", DEEPL_API_KEY: "" });
+    const config = loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: " dg ", GOOGLE_TRANSLATE_API_KEY: "" });
     expect(config.deepgramApiKey).toBe("dg");
-    expect(config.deeplApiKey).toBeNull();
+    expect(config.googleTranslateApiKey).toBeNull();
   });
 ```
 
@@ -1473,7 +1451,7 @@ export function createScriptedSttHub(): { factory: SttFactory; channel(channel: 
 }
 ```
 
-Mover a classe `TestClient`, as constantes `ORIGIN`/`START` e a configuração de teste de `gateway.test.ts` para `apps/server/src/test-support/test-client.ts` (exportando `TestClient`, `ORIGIN`, `START` e `testConfig(overrides?: Partial<ServerConfig>): ServerConfig` com `deepgramApiKey: null, deeplApiKey: null`), acrescentando à classe:
+Mover a classe `TestClient`, as constantes `ORIGIN`/`START` e a configuração de teste de `gateway.test.ts` para `apps/server/src/test-support/test-client.ts` (exportando `TestClient`, `ORIGIN`, `START` e `testConfig(overrides?: Partial<ServerConfig>): ServerConfig` com `deepgramApiKey: null, googleTranslateApiKey: null`), acrescentando à classe:
 
 ```ts
   drop(): void {
@@ -1572,7 +1550,7 @@ describe("transcrição e tradução de ponta a ponta", () => {
   });
 
   it("marca translation.error quando a tradução falha duas vezes", async () => {
-    const translator = translatorFrom(() => Promise.reject(new Error("HTTP 456")));
+    const translator = translatorFrom(() => Promise.reject(new Error("HTTP 429")));
     const { hub, client } = await setup(translator);
     hub.channel("them").emit(segment("Hello.", 0, 0.5));
     const error = await client.waitFor((m) => m.type === "translation.error");
@@ -1906,11 +1884,11 @@ Em `apps/server/src/gateway.ts`:
     }
 ```
 
-Em `apps/server/src/config.ts`, acrescentar à interface `deepgramApiKey: string | null; deeplApiKey: string | null;` e ao retorno de `loadConfig`:
+Em `apps/server/src/config.ts`, acrescentar à interface `deepgramApiKey: string | null; googleTranslateApiKey: string | null;` e ao retorno de `loadConfig`:
 
 ```ts
     deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() || null,
-    deeplApiKey: env.DEEPL_API_KEY?.trim() || null,
+    googleTranslateApiKey: env.GOOGLE_TRANSLATE_API_KEY?.trim() || null,
 ```
 
 Criar `apps/server/src/providers.ts`:
@@ -1920,8 +1898,8 @@ import type { ServerConfig } from "./config";
 import { createDeepgramSttFactory } from "./stt/deepgram-stt";
 import { createFakeSttFactory } from "./stt/fake-stt";
 import type { SttFactory } from "./stt/types";
-import { createDeepLTranslator } from "./translate/deepl-translator";
 import { createFakeTranslator } from "./translate/fake-translator";
+import { createGoogleTranslator } from "./translate/google-translator";
 import type { Translator } from "./translate/translator";
 
 export interface Providers {
@@ -1934,9 +1912,9 @@ export function createProviders(config: ServerConfig): Providers {
   const stt = config.deepgramApiKey
     ? { factory: createDeepgramSttFactory({ apiKey: config.deepgramApiKey }), label: "Deepgram" }
     : { factory: createFakeSttFactory(), label: "falso (sem DEEPGRAM_API_KEY)" };
-  const translation = config.deeplApiKey
-    ? { translator: createDeepLTranslator({ apiKey: config.deeplApiKey }), label: "DeepL" }
-    : { translator: createFakeTranslator(), label: "falsa (sem DEEPL_API_KEY)" };
+  const translation = config.googleTranslateApiKey
+    ? { translator: createGoogleTranslator({ apiKey: config.googleTranslateApiKey }), label: "Google Translation" }
+    : { translator: createFakeTranslator(), label: "falsa (sem GOOGLE_TRANSLATE_API_KEY)" };
   return {
     sttFactory: stt.factory,
     translator: translation.translator,
@@ -1970,7 +1948,7 @@ Acrescentar ao fim de `apps/server/.env.example`:
 ```
 # provedores (sem chave, o servidor usa versões falsas)
 DEEPGRAM_API_KEY=
-DEEPL_API_KEY=
+GOOGLE_TRANSLATE_API_KEY=
 ```
 
 - [ ] **Step 4: Rodar toda a suíte do servidor e o typecheck**
@@ -2612,7 +2590,7 @@ git commit -m "feat(extension): legenda com inglês e tradução no painel"
 Na seção "Desenvolvimento", depois do passo 3, acrescentar:
 
 ```markdown
-   Para transcrição e tradução reais, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com) e `DEEPL_API_KEY` (deepl.com/pro-api; a chave gratuita termina em `:fx`). Sem elas, o servidor usa versões falsas e avisa no log.
+   Para transcrição e tradução reais, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com) e `GOOGLE_TRANSLATE_API_KEY` (Google Cloud Console: ative a "Cloud Translation API" e crie uma chave de API restrita a ela). Sem elas, o servidor usa versões falsas e avisa no log.
 ```
 
 Substituir o título "O que o painel mostra no marco 1" e seu conteúdo por uma seção "O que o painel mostra" explicando: sem chaves, a sonda de sinal do marco 1; com chaves, a legenda (inglês com parcial em cinza, português em verde abaixo das falas dos participantes, falas do usuário em roxo sem tradução). Manter a menção a `/tone` como teste de áudio sem provedores.
@@ -2622,14 +2600,14 @@ Acrescentar ao fim:
 ```markdown
 ## Marcos 3 e 4 — roteiro de validação (com chaves reais)
 
-- [ ] O log do servidor mostra `STT: Deepgram · tradução: DeepL`.
+- [ ] O log do servidor mostra `STT: Deepgram · tradução: Google Translation`.
 - [ ] Numa aba com um vídeo em inglês (entrevista, podcast), o inglês aparece enquanto a pessoa fala, primeiro em cinza (parcial) e depois firme.
 - [ ] O português aparece abaixo de cada frase logo depois que ela termina.
 - [ ] Fala longa sem pausa: a tradução aparece aos poucos (a cada frase ou a cada ~2,5 s), sem esperar o fim.
 - [ ] Falando no microfone (inglês ou português), a fala aparece como "Você", sem tradução.
 - [ ] Clicar em Parar no meio de uma frase: as últimas palavras aparecem e são traduzidas antes de o status virar "Parado".
 - [ ] Fechar e reabrir o painel mantém a legenda.
-- [ ] Chave do DeepL errada (troque no `.env` e reinicie o servidor): o inglês continua e aparece "tradução indisponível".
+- [ ] Chave do Google errada (troque no `.env` e reinicie o servidor): o inglês continua e aparece "tradução indisponível".
 - [ ] Chave do Deepgram errada: aparece o aviso "A transcrição parou…" e a sessão segue capturando.
 - [ ] Ao parar, o log do servidor mostra a latência (`STT (segmento final) p50 … · tradução p50 …`). Meta: tradução p50 < 800 ms.
 - [ ] Repetir numa chamada real do Google Meet.
