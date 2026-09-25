@@ -11,7 +11,8 @@
       <span id="status" class="status">Parado</span>
     </header>
 
-    <section class="settings">
+    <details id="settings" class="settings" open>
+      <summary>Configurações</summary>
       <label>Servidor <input id="serverUrl" type="url" /></label>
       <label>Chave de acesso <input id="token" type="password" autocomplete="off" /></label>
       <label>
@@ -24,33 +25,37 @@
         </select>
       </label>
       <label>Contexto <textarea id="context" rows="3"></textarea></label>
-    </section>
+    </details>
 
     <div class="actions">
       <button id="start">Iniciar</button>
       <button id="stop" disabled>Parar</button>
+      <button id="skip-translator" hidden>Continuar só em inglês</button>
     </div>
 
     <p id="mic-permission" class="notice" hidden>
       O microfone ainda não foi liberado. <button id="grant-mic">Liberar microfone</button>
     </p>
     <p id="local-error" class="error" hidden></p>
+    <p id="local-notice" class="warning" hidden></p>
     <p id="error" class="error" hidden></p>
+    <p id="notice" class="warning" hidden></p>
     <p id="mic-denied" class="warning" hidden>Sugestões sem suas falas: microfone indisponível.</p>
 
-    <section class="channel" data-channel="them">
-      <h2>Participantes</h2>
-      <div class="meter"><div class="bar"></div></div>
-      <p class="stats"></p>
-      <p class="partial"></p>
-    </section>
+    <div class="meters">
+      <div class="channel" data-channel="them">
+        <span class="label">Participantes</span>
+        <div class="meter"><div class="bar"></div></div>
+        <span class="stats"></span>
+      </div>
+      <div class="channel" data-channel="me">
+        <span class="label">Você</span>
+        <div class="meter"><div class="bar"></div></div>
+        <span class="stats"></span>
+      </div>
+    </div>
 
-    <section class="channel" data-channel="me">
-      <h2>Você</h2>
-      <div class="meter"><div class="bar"></div></div>
-      <p class="stats"></p>
-      <p class="partial"></p>
-    </section>
+    <ol id="captions" class="captions" aria-live="polite"></ol>
 
     <script type="module" src="/src/sidepanel/main.ts"></script>
   </body>
