@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ServerMessage } from "@snowspeak/shared";
-import { SessionStore, initialState, reduce, type SessionState, type StoreAction } from "./session-store";
+import { MAX_CAPTIONS, SessionStore, initialState, reduce, type SessionState, type StoreAction } from "./session-store";
 
 const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
 const partial = (seq: number, text: string): ServerMessage => ({
@@ -34,7 +34,7 @@ describe("reduce", () => {
       { type: "server", message: partial(2, "repetido") },
       { type: "server", message: partial(1, "antigo") },
     );
-    expect(state.channels.them.lastPartial).toBe("dois");
+    expect(state.captions[0]?.partial).toBe("dois");
     expect(state.lastSeq).toBe(2);
   });
 
@@ -86,7 +86,7 @@ describe("reduce", () => {
       { type: "server", message: { v: 1, type: "session.ended", sessionId: "s1", reason: "stopped" } },
     );
     expect(ended.status).toBe("idle");
-    expect(ended.channels.them.lastPartial).toBe("último");
+    expect(ended.captions[0]?.partial).toBe("último");
     expect(reduce(ended, { type: "stopped" }).status).toBe("idle");
   });
 });
@@ -97,7 +97,7 @@ describe("SessionStore", () => {
     store.dispatch({ type: "starting" });
     store.dispatch({ type: "server", message: started });
     store.dispatch({ type: "server", message: partial(1, "olá") });
-    expect(store.snapshot()).toMatchObject({ status: "running", channels: { them: { lastPartial: "olá" } } });
+    expect(store.snapshot()).toMatchObject({ status: "running", captions: [{ partial: "olá" }] });
   });
 
   it("notifica assinantes e permite cancelar a assinatura", () => {
@@ -108,5 +108,110 @@ describe("SessionStore", () => {
     unsubscribe();
     store.dispatch({ type: "stopped" });
     expect(seen).toEqual(["starting"]);
+  });
+});
+
+const event = (seq: number, body: Record<string, unknown>): ServerMessage =>
+  ({ v: 1, sessionId: "s1", seq, ts: 0, channel: "them", utteranceId: "them-1", ...body }) as ServerMessage;
+
+describe("falas", () => {
+  it("monta a fala com parcial, segmentos estáveis e fim", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.partial", text: "hel" }) },
+      { type: "server", message: event(2, { type: "transcript.segment", segmentIdx: 0, text: "Hello there." }) },
+      { type: "server", message: event(3, { type: "transcript.partial", text: "how" }) },
+      { type: "server", message: event(4, { type: "utterance.end", interrupted: false }) },
+    );
+    expect(state.captions).toEqual([
+      { utteranceId: "them-1", channel: "them", segments: ["Hello there."], partial: "", ended: true, interrupted: false, sentences: {} },
+    ]);
+  });
+
+  it("registra frases prontas, traduções e falhas", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.segment", segmentIdx: 0, text: "Hi. Bye." }) },
+      { type: "server", message: event(2, { type: "sentence.ready", sentenceIdx: 0, text: "Hi." }) },
+      { type: "server", message: event(3, { type: "sentence.ready", sentenceIdx: 1, text: "Bye." }) },
+      { type: "sentence-translated", sessionId: "s1", utteranceId: "them-1", sentenceIdx: 1, text: "Tchau." },
+      { type: "sentence-translation-failed", sessionId: "s1", utteranceId: "them-1", sentenceIdx: 0 },
+    );
+    expect(state.captions[0]?.sentences).toEqual({
+      0: { source: "Hi.", translation: null, failed: true },
+      1: { source: "Bye.", translation: "Tchau.", failed: false },
+    });
+  });
+
+  it("ignora tradução de uma fala que já saiu da legenda", () => {
+    const before = run({ type: "server", message: started });
+    expect(reduce(before, { type: "sentence-translated", sessionId: "s1", utteranceId: "them-9", sentenceIdx: 0, text: "x" })).toBe(before);
+  });
+
+  it("remove a fala encerrada sem nenhum segmento estável", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.partial", text: "uh" }) },
+      { type: "server", message: event(2, { type: "utterance.end", interrupted: true }) },
+    );
+    expect(state.captions).toEqual([]);
+  });
+
+  it("mantém as falas dos dois canais na ordem em que começaram", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.partial", text: "a" }) },
+      { type: "server", message: event(2, { type: "transcript.partial", channel: "me", utteranceId: "me-1", text: "b" }) },
+      { type: "server", message: event(3, { type: "transcript.segment", segmentIdx: 0, text: "A." }) },
+    );
+    expect(state.captions.map((c) => c.utteranceId)).toEqual(["them-1", "me-1"]);
+  });
+
+  it("guarda no máximo as 200 falas mais recentes", () => {
+    const actions: StoreAction[] = [{ type: "server", message: started }];
+    for (let i = 1; i <= 205; i++) {
+      actions.push({ type: "server", message: event(i, { type: "transcript.partial", utteranceId: `them-${i}`, text: `t${i}` }) });
+    }
+    const state = run(...actions);
+    expect(state.captions).toHaveLength(MAX_CAPTIONS);
+    expect(state.captions[0]?.utteranceId).toBe("them-6");
+  });
+
+  it("evento de erro e aviso local viram aviso sem encerrar a sessão", () => {
+    const state = run(
+      { type: "starting" },
+      { type: "server", message: started },
+      {
+        type: "server",
+        message: { v: 1, sessionId: "s1", seq: 1, ts: 0, type: "error", scope: "stt", code: "stt_connection_lost", retryable: false, channel: "them", message: "A transcrição parou." },
+      },
+    );
+    expect(state).toMatchObject({ status: "running", notice: "A transcrição parou." });
+    expect(reduce(state, { type: "notice", message: "Tradução indisponível." }).notice).toBe("Tradução indisponível.");
+  });
+
+  it("um novo início limpa falas e avisos anteriores", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.partial", text: "old" }) },
+      { type: "notice", message: "aviso" },
+      { type: "starting" },
+    );
+    expect(state.captions).toEqual([]);
+    expect(state.notice).toBeNull();
+  });
+  it("ignora tradução de outra sessão, mesmo com o mesmo utteranceId", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.segment", segmentIdx: 0, text: "Hi." }) },
+      { type: "server", message: event(2, { type: "sentence.ready", sentenceIdx: 0, text: "Hi." }) },
+    );
+    expect(reduce(state, { type: "sentence-translated", sessionId: "s0", utteranceId: "them-1", sentenceIdx: 0, text: "velha" })).toBe(state);
+  });
+
+  it("stopping mostra que a sessão está finalizando e zera os níveis", () => {
+    const state = run({ type: "server", message: started }, { type: "level", channel: "them", rms: 0.5 }, { type: "stopping" });
+    expect(state.status).toBe("stopping");
+    expect(state.channels.them.level).toBe(0);
   });
 });
