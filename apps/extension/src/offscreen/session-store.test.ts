@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ServerMessage } from "@snowspeak/shared";
-import { MAX_CAPTIONS, SessionStore, initialState, reduce, type SessionState, type StoreAction } from "./session-store";
+import { BUSY_SUGGESTION_NOTICE, MAX_CAPTIONS, RATE_LIMITED_SUGGESTION_NOTICE, SessionStore, initialState, reduce, type SessionState, type StoreAction } from "./session-store";
 
 const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
 const partial = (seq: number, text: string): ServerMessage => ({
@@ -218,5 +218,72 @@ describe("falas", () => {
     const state = run({ type: "notice", message: "A" });
     expect(reduce(state, { type: "clear-notice", message: "A" }).notice).toBeNull();
     expect(reduce(state, { type: "clear-notice", message: "B" })).toBe(state);
+  });
+});
+
+const suggestionEvent = (seq: number, body: Record<string, unknown>): ServerMessage =>
+  ({ v: 1, sessionId: "s1", seq, ts: 0, ...body }) as ServerMessage;
+
+describe("sugestão", () => {
+  it("monta a sugestão com started, deltas e done", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "auto-1", trigger: "auto", basedOnUtteranceId: "them-2" }) },
+      { type: "server", message: suggestionEvent(2, { type: "suggestion.delta", requestId: "auto-1", lang: "en", text: "Sure, " }) },
+      { type: "server", message: suggestionEvent(3, { type: "suggestion.delta", requestId: "auto-1", lang: "en", text: "I can." }) },
+      { type: "server", message: suggestionEvent(4, { type: "suggestion.delta", requestId: "auto-1", lang: "pt", text: "Claro." }) },
+    );
+    expect(state.suggestion).toEqual({
+      requestId: "auto-1",
+      trigger: "auto",
+      status: "streaming",
+      en: "Sure, I can.",
+      pt: "Claro.",
+      basedOnUtteranceId: "them-2",
+      errorCode: null,
+    });
+    const done = reduce(state, { type: "server", message: suggestionEvent(5, { type: "suggestion.done", requestId: "auto-1", en: "Sure, I can.", pt: "Claro, posso." }) });
+    expect(done.suggestion).toMatchObject({ status: "done", en: "Sure, I can.", pt: "Claro, posso." });
+  });
+
+  it("ignora deltas de outra sugestão e uma nova substitui a atual", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "auto", basedOnUtteranceId: null }) },
+      { type: "server", message: suggestionEvent(2, { type: "suggestion.started", requestId: "b", trigger: "manual", basedOnUtteranceId: null }) },
+      { type: "server", message: suggestionEvent(3, { type: "suggestion.delta", requestId: "a", lang: "en", text: "old" }) },
+      { type: "server", message: suggestionEvent(4, { type: "suggestion.error", requestId: "a", code: "cancelled" }) },
+    );
+    expect(state.suggestion).toMatchObject({ requestId: "b", status: "streaming", en: "" });
+  });
+
+  it("pedido recusado vira aviso curto sem apagar a sugestão atual", () => {
+    const base = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
+    );
+    const busy = reduce(base, { type: "server", message: suggestionEvent(2, { type: "suggestion.error", requestId: "b", code: "busy" }) });
+    expect(busy.notice).toBe(BUSY_SUGGESTION_NOTICE);
+    expect(busy.suggestion?.requestId).toBe("a");
+    const rate = reduce(base, { type: "server", message: suggestionEvent(2, { type: "suggestion.error", requestId: "c", code: "rate_limited" }) });
+    expect(rate.notice).toBe(RATE_LIMITED_SUGGESTION_NOTICE);
+  });
+
+  it("erro da sugestão atual marca o estado de erro", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
+      { type: "server", message: suggestionEvent(2, { type: "suggestion.error", requestId: "a", code: "timeout" }) },
+    );
+    expect(state.suggestion).toMatchObject({ status: "error", errorCode: "timeout" });
+  });
+
+  it("um novo início limpa a sugestão", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
+      { type: "starting" },
+    );
+    expect(state.suggestion).toBeNull();
   });
 });

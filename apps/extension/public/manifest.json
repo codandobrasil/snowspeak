@@ -4,8 +4,29 @@
   "version": "0.1.0",
   "description": "Legendas EN→PT-BR e sugestões de resposta em chamadas.",
   "minimum_chrome_version": "116",
-  "permissions": ["tabCapture", "offscreen", "sidePanel", "activeTab", "storage"],
-  "background": { "service_worker": "service-worker.js", "type": "module" },
-  "side_panel": { "default_path": "sidepanel.html" },
-  "action": { "default_title": "SnowSpeak" }
+  "permissions": [
+    "tabCapture",
+    "offscreen",
+    "sidePanel",
+    "activeTab",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "SnowSpeak"
+  },
+  "commands": {
+    "suggest": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Sugerir resposta"
+    }
+  }
 }

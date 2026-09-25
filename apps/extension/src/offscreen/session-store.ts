@@ -1,10 +1,22 @@
-import { isServerEvent, type Channel, type ServerMessage } from "@snowspeak/shared";
+import { isServerEvent, type Channel, type ServerMessage, type SuggestionErrorCode, type SuggestionTrigger } from "@snowspeak/shared";
 import type { ChannelStats } from "./frame-sender";
 
 export type SessionStatus = "idle" | "starting" | "running" | "stopping" | "error";
 export type MicStatus = "unknown" | "active" | "denied";
 
 export const MAX_CAPTIONS = 200;
+export const BUSY_SUGGESTION_NOTICE = "Aguarde a sugestão atual terminar.";
+export const RATE_LIMITED_SUGGESTION_NOTICE = "Espere um instante para pedir outra sugestão.";
+
+export interface SuggestionState {
+  requestId: string;
+  trigger: SuggestionTrigger;
+  status: "streaming" | "done" | "error";
+  en: string;
+  pt: string;
+  basedOnUtteranceId: string | null;
+  errorCode: SuggestionErrorCode | null;
+}
 
 export interface ChannelView {
   level: number;
@@ -40,6 +52,7 @@ export interface SessionState {
   lastSeq: number;
   channels: Record<Channel, ChannelView>;
   captions: Caption[];
+  suggestion: SuggestionState | null;
 }
 
 export type StoreAction =
@@ -71,6 +84,7 @@ export function initialState(): SessionState {
     lastSeq: 0,
     channels: { them: emptyChannel(), me: emptyChannel() },
     captions: [],
+    suggestion: null,
   };
 }
 
@@ -148,8 +162,33 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
     case "error":
       return { ...next, notice: message.message };
-    default:
-      return next; // eventos de sugestão entram na Task 6
+    case "suggestion.started":
+      return {
+        ...next,
+        suggestion: {
+          requestId: message.requestId,
+          trigger: message.trigger,
+          status: "streaming",
+          en: "",
+          pt: "",
+          basedOnUtteranceId: message.basedOnUtteranceId,
+          errorCode: null,
+        },
+      };
+    case "suggestion.delta":
+      if (next.suggestion?.requestId !== message.requestId) return next;
+      return { ...next, suggestion: { ...next.suggestion, [message.lang]: next.suggestion[message.lang] + message.text } };
+    case "suggestion.done":
+      if (next.suggestion?.requestId !== message.requestId) return next;
+      return { ...next, suggestion: { ...next.suggestion, status: "done", en: message.en, pt: message.pt } };
+    case "suggestion.error":
+      if (next.suggestion?.requestId === message.requestId) {
+        return { ...next, suggestion: { ...next.suggestion, status: "error", errorCode: message.code } };
+      }
+      // Pedido recusado: aviso curto, a sugestão atual continua na tela.
+      if (message.code === "busy") return { ...next, notice: BUSY_SUGGESTION_NOTICE };
+      if (message.code === "rate_limited") return { ...next, notice: RATE_LIMITED_SUGGESTION_NOTICE };
+      return next;
   }
 }
 

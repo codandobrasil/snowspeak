@@ -15,7 +15,12 @@ export interface StartParams {
   token: string;
   mode: Mode;
   context: string;
+  profile: string;
+  job: string;
 }
+
+/** Campos que podem mudar durante a sessão (valem para as próximas sugestões). */
+export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job">>;
 
 export interface ChannelCapture {
   stop(): void;
@@ -47,6 +52,8 @@ export interface ControllerDeps {
   openSocket(url: string, handlers: SocketHandlers): ControllerSocket;
   /** Recebe cada mensagem do servidor depois que ela foi aplicada ao store (ex.: fila de tradução). */
   onServerMessage?: (message: ServerMessage) => void;
+  /** Gera o requestId de cada pedido de sugestão (padrão: crypto.randomUUID). */
+  newRequestId?: () => string;
 }
 
 interface Run {
@@ -149,7 +156,14 @@ export class SessionController {
       socket = this.deps.openSocket(params.serverUrl, {
         onOpen: () => {
           run.wasOpen = true;
-          socket.sendJson({ type: "session.start", token: params.token, mode: params.mode, context: params.context });
+          socket.sendJson({
+            type: "session.start",
+            token: params.token,
+            mode: params.mode,
+            context: params.context,
+            profile: params.profile,
+            job: params.job,
+          });
         },
         onMessage: (message) => this.onServerMessage(run, message),
         onClose: (code) => this.onSocketClose(run, code),
@@ -165,6 +179,21 @@ export class SessionController {
     run.statsTimer = setInterval(() => {
       if (run.sender) this.deps.store.dispatch({ type: "stats", stats: run.sender.stats() });
     }, STATS_INTERVAL_MS);
+  }
+
+  /** Pede uma sugestão de resposta; sem sessão iniciada, não faz nada. */
+  requestSuggestion(): void {
+    const run = this.running;
+    if (!run?.sender || run.stopping || !run.socket?.isOpen) return;
+    const requestId = (this.deps.newRequestId ?? (() => crypto.randomUUID()))();
+    run.socket.sendJson({ type: "suggest.request", requestId });
+  }
+
+  /** Mudanças de modo, contexto, currículo ou vaga durante a sessão. */
+  update(changes: SessionSettingsChanges): void {
+    const run = this.running;
+    if (!run?.sender || run.stopping || !run.socket?.isOpen) return;
+    run.socket.sendJson({ type: "session.update", ...changes });
   }
 
   stop(): void {

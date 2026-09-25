@@ -78,6 +78,12 @@ async function handleStart(params: PanelStartParams, activeTabId: number | undef
   }
 }
 
+// Atalho Alt+S (manifest "commands"): pede uma sugestão de resposta.
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== "suggest") return;
+  void chrome.runtime.sendMessage({ target: "offscreen", type: "suggest" } satisfies RuntimeMessage).catch(() => undefined);
+});
+
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse: (response: StartResponse) => void) => {
   if (message.target !== "background") return;
 

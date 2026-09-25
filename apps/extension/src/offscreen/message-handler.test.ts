@@ -4,12 +4,14 @@ import { handleOffscreenMessage, type OffscreenController } from "./message-hand
 import type { StartParams } from "./session-controller";
 import { SessionStore } from "./session-store";
 
-const params: StartParams = { streamId: "s", serverUrl: "ws://x/ws", token: "k", mode: "work", context: "" };
+const params: StartParams = { streamId: "s", serverUrl: "ws://x/ws", token: "k", mode: "work", context: "", profile: "", job: "" };
 
 function fakeController() {
   const start = vi.fn((_params: StartParams) => Promise.resolve());
   const stop = vi.fn(() => undefined);
-  return { start, stop } satisfies OffscreenController;
+  const requestSuggestion = vi.fn(() => undefined);
+  const update = vi.fn((_changes: object) => undefined);
+  return { start, stop, requestSuggestion, update } satisfies OffscreenController;
 }
 
 describe("handleOffscreenMessage", () => {
@@ -35,5 +37,12 @@ describe("handleOffscreenMessage", () => {
   it("ignora mensagens destinadas a outros contextos", () => {
     const message: RuntimeMessage = { target: "background", type: "stop" };
     expect(handleOffscreenMessage(message, fakeController(), new SessionStore())).toBeUndefined();
+  });
+  it("pede sugestão e repassa mudanças de contexto", () => {
+    const controller = fakeController();
+    expect(handleOffscreenMessage({ target: "offscreen", type: "suggest" }, controller, new SessionStore())).toEqual({ ok: true });
+    expect(controller.requestSuggestion).toHaveBeenCalled();
+    expect(handleOffscreenMessage({ target: "offscreen", type: "update", changes: { mode: "interview" } }, controller, new SessionStore())).toEqual({ ok: true });
+    expect(controller.update).toHaveBeenCalledWith({ mode: "interview" });
   });
 });

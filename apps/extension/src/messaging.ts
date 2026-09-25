@@ -1,4 +1,4 @@
-import type { StartParams } from "./offscreen/session-controller";
+import type { SessionSettingsChanges, StartParams } from "./offscreen/session-controller";
 import type { SessionState } from "./offscreen/session-store";
 
 /** O painel não conhece o streamId: o service worker o obtém para a aba que o painel mostra (tabId). */
@@ -11,7 +11,9 @@ export type BackgroundMessage =
 export type OffscreenMessage =
   | { target: "offscreen"; type: "start"; params: StartParams }
   | { target: "offscreen"; type: "stop" }
-  | { target: "offscreen"; type: "get-state" };
+  | { target: "offscreen"; type: "get-state" }
+  | { target: "offscreen"; type: "suggest" }
+  | { target: "offscreen"; type: "update"; changes: SessionSettingsChanges };
 
 export type SidePanelMessage = { target: "sidepanel"; type: "state"; state: SessionState };
 

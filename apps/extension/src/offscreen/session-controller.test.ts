@@ -64,7 +64,15 @@ function fakeCapture(): FakeCapture {
   return capture;
 }
 
-const params: StartParams = { streamId: "stream-1", serverUrl: "ws://server/ws", token: "key-1", mode: "work", context: "" };
+const params: StartParams = {
+  streamId: "stream-1",
+  serverUrl: "ws://server/ws",
+  token: "key-1",
+  mode: "work",
+  context: "",
+  profile: "Node dev",
+  job: "Backend",
+};
 const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
 
 interface SetupOverrides {
@@ -129,7 +137,7 @@ describe("SessionController", () => {
     expect(t.deps.captureTab).toHaveBeenCalledWith("stream-1", expect.anything());
     expect(t.sockets).toHaveLength(1);
     t.sockets[0]!.open();
-    expect(t.sockets[0]!.json).toEqual([{ type: "session.start", token: "key-1", mode: "work", context: "" }]);
+    expect(t.sockets[0]!.json).toEqual([{ type: "session.start", token: "key-1", mode: "work", context: "", profile: "Node dev", job: "Backend" }]);
     t.sockets[0]!.receive(started);
     expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "active" });
   });
@@ -348,5 +356,29 @@ describe("SessionController", () => {
     vi.advanceTimersByTime(STATS_INTERVAL_MS);
     expect(t.store.snapshot().channels.them.sentFrames).toBe(1);
     expect(t.store.snapshot().channels.me.sentFrames).toBe(1);
+  });
+  it("pede sugestão ao servidor com um requestId novo", async () => {
+    const t = setup();
+    const controller = new SessionController({ ...t.deps, newRequestId: () => "req-1" });
+    await controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.receive(started);
+    controller.requestSuggestion();
+    expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-1" });
+  });
+
+  it("não pede sugestão sem sessão iniciada", async () => {
+    const t = setup();
+    await t.controller.start(params);
+    t.sockets[0]!.open();
+    t.controller.requestSuggestion();
+    expect(t.sockets[0]!.json.map((m) => m.type)).toEqual(["session.start"]);
+  });
+
+  it("envia mudanças de contexto durante a sessão", async () => {
+    const t = setup();
+    const socket = await startRunning(t);
+    t.controller.update({ job: "Staff Engineer" });
+    expect(socket.json.at(-1)).toEqual({ type: "session.update", job: "Staff Engineer" });
   });
 });
