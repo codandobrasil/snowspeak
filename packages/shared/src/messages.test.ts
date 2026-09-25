@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_CONTEXT_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
+import { MAX_CONTEXT_CHARS, MAX_PROFILE_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
 
 describe("parseClientMessage", () => {
   it("aceita session.start válido", () => {
@@ -85,5 +85,33 @@ describe("mensagens do servidor", () => {
     expect(parseServerMessage(JSON.stringify({ ...base, type: "transcript.partial", text: "x" }))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "transcript.segment", segmentIdx: -1, text: "x" }))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "sentence.ready", sentenceIdx: 0.5, text: "b" }))).toBeNull();
+  });
+});
+
+describe("mensagens de sugestão", () => {
+  it("session.start aceita currículo e vaga opcionais, com limite", () => {
+    const start = { type: "session.start", token: "k", mode: "interview", context: "", profile: "Dev backend 8 anos", job: "Senior Backend" };
+    expect(parseClientMessage(JSON.stringify(start))).toEqual(start);
+    expect(parseClientMessage(JSON.stringify({ ...start, profile: "x".repeat(MAX_PROFILE_CHARS + 1) }))).toBeNull();
+  });
+
+  it("aceita session.update parcial e suggest.request", () => {
+    expect(parseClientMessage('{"type":"session.update","job":"Nova vaga"}')).toEqual({ type: "session.update", job: "Nova vaga" });
+    expect(parseClientMessage('{"type":"suggest.request","requestId":"abc"}')).toEqual({ type: "suggest.request", requestId: "abc" });
+    expect(parseClientMessage('{"type":"suggest.request","requestId":""}')).toBeNull();
+  });
+
+  it("aceita os eventos de sugestão", () => {
+    const base = { v: 1, sessionId: "s", seq: 1, ts: 0, requestId: "r1" };
+    const events = [
+      { ...base, type: "suggestion.started", trigger: "auto", basedOnUtteranceId: "them-3" },
+      { ...base, type: "suggestion.started", trigger: "manual", basedOnUtteranceId: null },
+      { ...base, type: "suggestion.delta", lang: "en", text: "Sure" },
+      { ...base, type: "suggestion.done", en: "Sure.", pt: "Claro." },
+      { ...base, type: "suggestion.error", code: "busy" },
+    ];
+    for (const event of events) expect(parseServerMessage(JSON.stringify(event))).toEqual(event);
+    expect(parseServerMessage(JSON.stringify({ ...base, type: "suggestion.error", code: "exploded" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, type: "suggestion.delta", lang: "es", text: "x" }))).toBeNull();
   });
 });

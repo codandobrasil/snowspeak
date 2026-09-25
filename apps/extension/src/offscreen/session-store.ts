@@ -148,6 +148,8 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
     case "error":
       return { ...next, notice: message.message };
+    default:
+      return next; // eventos de sugestão entram na Task 6
   }
 }
 
