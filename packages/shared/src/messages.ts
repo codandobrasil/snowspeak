@@ -65,18 +65,48 @@ const sessionEndedSchema = z.object({
   reason: z.enum(SESSION_END_REASONS),
 });
 
+export const ERROR_SCOPES = ["stt", "translate", "suggest", "session"] as const;
+export type ErrorScope = (typeof ERROR_SCOPES)[number];
+
 // Eventos: envelope com seq monotônico.
 const envelopeShape = {
   v: z.literal(1),
   sessionId: z.string().min(1),
   seq: z.number().int().min(1),
   ts: z.number(),
-  utteranceId: z.string().optional(),
 };
+
+const utteranceIdSchema = z.string().min(1);
+const indexSchema = z.number().int().min(0);
 
 const transcriptPartialBody = z.object({
   type: z.literal("transcript.partial"),
   channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  text: z.string(),
+});
+
+const transcriptSegmentBody = z.object({
+  type: z.literal("transcript.segment"),
+  channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  segmentIdx: indexSchema,
+  text: z.string(),
+});
+
+const utteranceEndBody = z.object({
+  type: z.literal("utterance.end"),
+  channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  interrupted: z.boolean(),
+});
+
+// Frase do canal them pronta para tradução (a tradução acontece no cliente).
+const sentenceReadyBody = z.object({
+  type: z.literal("sentence.ready"),
+  channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  sentenceIdx: indexSchema,
   text: z.string(),
 });
 
@@ -87,11 +117,24 @@ const audioGapBody = z.object({
   reason: z.enum(AUDIO_GAP_REASONS),
 });
 
+const errorBody = z.object({
+  type: z.literal("error"),
+  scope: z.enum(ERROR_SCOPES),
+  code: z.string().min(1),
+  retryable: z.boolean(),
+  message: z.string(),
+  channel: channelSchema.optional(),
+});
+
 const serverMessageSchema = z.discriminatedUnion("type", [
   sessionStartedSchema,
   sessionEndedSchema,
   transcriptPartialBody.extend(envelopeShape),
+  transcriptSegmentBody.extend(envelopeShape),
+  utteranceEndBody.extend(envelopeShape),
+  sentenceReadyBody.extend(envelopeShape),
   audioGapBody.extend(envelopeShape),
+  errorBody.extend(envelopeShape),
 ]);
 
 export type ServerControl = z.infer<typeof sessionStartedSchema> | z.infer<typeof sessionEndedSchema>;
@@ -101,10 +144,15 @@ export interface EventEnvelope {
   sessionId: string;
   seq: number;
   ts: number;
-  utteranceId?: string;
 }
 
-export type ServerEventBody = z.infer<typeof transcriptPartialBody> | z.infer<typeof audioGapBody>;
+export type ServerEventBody =
+  | z.infer<typeof transcriptPartialBody>
+  | z.infer<typeof transcriptSegmentBody>
+  | z.infer<typeof utteranceEndBody>
+  | z.infer<typeof sentenceReadyBody>
+  | z.infer<typeof audioGapBody>
+  | z.infer<typeof errorBody>;
 
 export type ServerEvent = EventEnvelope & ServerEventBody;
 

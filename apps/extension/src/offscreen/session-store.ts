@@ -69,6 +69,8 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
       return withChannel(next, message.channel, { lastPartial: message.text });
     case "audio.gap":
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
+    default:
+      return next; // eventos de fala e frase entram na Task 6
   }
 }
 

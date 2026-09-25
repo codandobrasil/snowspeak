@@ -27,7 +27,7 @@ describe("parseClientMessage", () => {
 describe("mensagens do servidor", () => {
   it("distingue eventos (com seq) de mensagens de controle", () => {
     const control: ServerMessage = { v: 1, type: "session.started", sessionId: "s", resumeToken: "r" };
-    const event: ServerMessage = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", text: "hi" };
+    const event: ServerMessage = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1", text: "hi" };
     expect(isServerEvent(control)).toBe(false);
     expect(isServerEvent(event)).toBe(true);
   });
@@ -50,7 +50,7 @@ describe("mensagens do servidor", () => {
   });
 
   it("rejeita evento sem seq, com seq inválido ou canal desconhecido", () => {
-    const partial = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", text: "hi" };
+    const partial = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1", text: "hi" };
     const { seq: _seq, ...withoutSeq } = partial;
     expect(parseServerMessage(JSON.stringify(withoutSeq))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...partial, seq: 0 }))).toBeNull();
@@ -61,5 +61,29 @@ describe("mensagens do servidor", () => {
   it("rejeita controle sem sessionId e motivo de encerramento desconhecido", () => {
     expect(parseServerMessage('{"v":1,"type":"session.started","resumeToken":"r"}')).toBeNull();
     expect(parseServerMessage('{"v":1,"type":"session.ended","sessionId":"s","reason":"bored"}')).toBeNull();
+  });
+  it("aceita os eventos de transcrição e de frase pronta", () => {
+    const base = { v: 1, sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1" };
+    const events = [
+      { ...base, type: "transcript.partial", text: "hel" },
+      { ...base, type: "transcript.segment", segmentIdx: 0, text: "Hello." },
+      { ...base, type: "utterance.end", interrupted: false },
+      { ...base, type: "sentence.ready", sentenceIdx: 0, text: "Hello." },
+    ];
+    for (const event of events) expect(parseServerMessage(JSON.stringify(event))).toEqual(event);
+  });
+
+  it("aceita evento de erro com e sem canal", () => {
+    const error = { v: 1, sessionId: "s", seq: 2, ts: 0, type: "error", scope: "stt", code: "stt_connection_lost", retryable: false, message: "caiu" };
+    expect(parseServerMessage(JSON.stringify(error))).toEqual(error);
+    expect(parseServerMessage(JSON.stringify({ ...error, channel: "me" }))).toEqual({ ...error, channel: "me" });
+    expect(parseServerMessage(JSON.stringify({ ...error, scope: "universe" }))).toBeNull();
+  });
+
+  it("rejeita eventos de fala sem utteranceId ou com índice inválido", () => {
+    const base = { v: 1, sessionId: "s", seq: 1, ts: 0, channel: "them" };
+    expect(parseServerMessage(JSON.stringify({ ...base, type: "transcript.partial", text: "x" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "transcript.segment", segmentIdx: -1, text: "x" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "sentence.ready", sentenceIdx: 0.5, text: "b" }))).toBeNull();
   });
 });

@@ -52,7 +52,7 @@ export class Session {
   }
 
   private onSttResult(channel: Channel, result: SttResult): void {
-    this.emit({ type: "transcript.partial", channel, text: result.text });
+    this.emit({ type: "transcript.partial", channel, utteranceId: `${channel}-1`, text: result.text });
   }
 
   private emit(body: ServerEventBody): void {

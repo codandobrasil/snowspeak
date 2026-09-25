@@ -10,6 +10,7 @@ const partial = (seq: number, text: string): ServerMessage => ({
   seq,
   ts: 0,
   channel: "them",
+  utteranceId: "them-1",
   text,
 });
 
