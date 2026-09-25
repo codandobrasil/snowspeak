@@ -22,24 +22,27 @@ pnpm --filter @snowspeak/extension build
 1. Abra `chrome://extensions`, ative o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha `apps/extension/dist`.
 2. Copie o ID da extensão exibido no card.
 3. `cp apps/server/.env.example apps/server/.env` e preencha `ALLOWED_ORIGINS=chrome-extension://<ID>` e uma chave em `ACCESS_KEYS`.
+   Para transcrição real, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com → API Keys; a conta nova vem com crédito). Sem ela, o servidor usa o STT falso e avisa no log. A tradução não precisa de chave: roda no próprio Chrome (Translator API, Chrome 138+ para desktop).
 4. `pnpm --filter @snowspeak/server dev`
 5. Na aba que você quer capturar, clique no ícone do SnowSpeak. O painel abre associado **a essa aba**. Informe a chave e clique em **Iniciar**.
 
 Depois de mudar o código da extensão: `pnpm --filter @snowspeak/extension build` e clique em recarregar no card da extensão.
 
-### O que o painel mostra no marco 1
+### O que o painel mostra
 
-Ainda não há transcrição real. O servidor usa um STT falso que mede o áudio recebido e, a cada segundo de áudio, mostra por canal:
+**Com `DEEPGRAM_API_KEY`:** a legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquanto é provisório), o português aparece em verde abaixo de cada frase dos participantes, e as suas falas aparecem em roxo, sem tradução. Na primeira sessão, o Chrome pode baixar o modelo de tradução (há um botão para seguir só em inglês enquanto isso).
+
+**Sem a chave:** o STT falso do marco 1, que mede o áudio recebido e mostra por canal:
 
 ```
 [fake-stt them] 12.0 s · -9 dBFS · ~440 Hz
 ```
 
-- **duração**: segundos de áudio aceitos pelo servidor (deve crescer 1 s por segundo);
-- **nível** em dBFS e **frequência dominante**: confirmam que o PCM chegou correto (taxa de amostragem, amplitude, formato);
+- **duração**: segundos de áudio aceitos pelo servidor;
+- **nível** em dBFS e **frequência dominante**: confirmam que o PCM chegou correto;
 - `silêncio` quando o nível fica abaixo de -60 dBFS.
 
-A página `http://localhost:8787/tone` toca um seno de 440 Hz com amplitude 0,5 (≈ -9 dBFS), útil para conferir o caminho completo.
+A página `http://localhost:8787/tone` toca um seno de 440 Hz com amplitude 0,5 (≈ -9 dBFS), útil para conferir o caminho do áudio sem provedores.
 
 ## Marco 1 — roteiro de validação
 
@@ -68,3 +71,19 @@ Marque cada item ao validar no Chrome:
 - [x] Repetir o fluxo numa chamada real do Google Meet.
 
 Se aparecer "Extension has not been invoked for the current page" ao iniciar, anote: é o caso previsto na contingência R7 do plano (o clique no ícone passa a iniciar a sessão diretamente).
+
+## Marcos 3 e 4 — roteiro de validação (com a chave do Deepgram)
+
+- [ ] O log do servidor mostra `STT: Deepgram · tradução: no Chrome do usuário`.
+- [ ] Na primeira vez, Iniciar mostra "Baixando o tradutor do Chrome… X%" (só se o modelo ainda não estiver instalado), com o botão "Continuar só em inglês".
+- [ ] Numa aba com um vídeo em inglês (entrevista, podcast), o inglês aparece enquanto a pessoa fala, primeiro em cinza (parcial) e depois firme.
+- [ ] O português aparece abaixo de cada frase logo depois que ela termina.
+- [ ] A tradução soa como português do Brasil natural (anotar exemplos bons e ruins).
+- [ ] Fala longa sem pausa: a tradução aparece aos poucos (a cada frase ou a cada ~2,5 s), sem esperar o fim.
+- [ ] Falando no microfone (inglês ou português), a fala aparece como "Você", sem tradução.
+- [ ] Clicar em Parar no meio de uma frase: status "Finalizando…", as últimas palavras aparecem e são traduzidas, depois "Parado".
+- [ ] Parar durante o download do tradutor cancela o início.
+- [ ] Fechar e reabrir o painel mantém a legenda.
+- [ ] Chave do Deepgram errada (troque no `.env` e reinicie o servidor): aparece "A transcrição parou…" e a sessão segue capturando.
+- [ ] Ao parar, o log do servidor mostra a latência estimada do STT (`latência estimada do STT (segmento final) p50 …`).
+- [ ] Repetir numa chamada real do Google Meet.
