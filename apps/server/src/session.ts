@@ -30,8 +30,8 @@ export class Session {
     readonly context: string,
   ) {
     this.stt = {
-      them: deps.sttFactory("them", (result) => this.onSttResult("them", result)),
-      me: deps.sttFactory("me", (result) => this.onSttResult("me", result)),
+      them: deps.sttFactory("them", { onResult: (result) => this.onSttResult("them", result), onError: () => {} }),
+      me: deps.sttFactory("me", { onResult: (result) => this.onSttResult("me", result), onError: () => {} }),
     };
   }
 
@@ -52,6 +52,7 @@ export class Session {
   }
 
   private onSttResult(channel: Channel, result: SttResult): void {
+    if (result.kind !== "partial") return; // substituído pelo pipeline na Task 5
     this.emit({ type: "transcript.partial", channel, utteranceId: `${channel}-1`, text: result.text });
   }
 
