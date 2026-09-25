@@ -1,43 +1,45 @@
-# Marcos 3 e 4 — Transcrição (Deepgram) e tradução (Google Cloud Translation) Implementation Plan
+# Marcos 3 e 4 — Transcrição (Deepgram) e tradução (tradutor embutido do Chrome) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Mostrar no painel, em tempo real, o que os participantes dizem em inglês (Deepgram) com a tradução PT-BR logo abaixo de cada frase (Google Cloud Translation), e o que o usuário diz (sem tradução).
+**Goal:** Mostrar no painel, em tempo real, o que os participantes dizem em inglês (Deepgram) com a tradução PT-BR logo abaixo de cada frase, e o que o usuário diz (sem tradução).
 
-**Architecture:** O servidor troca o STT falso por uma conexão Deepgram por canal. Um `UtteranceAssembler` transforma os resultados em parcial → segmento estável → fim de fala; um `SentenceSplitter` decide quando uma frase do canal `them` está pronta e o `GoogleTranslator` a traduz. Tudo por canal fica num `ChannelPipeline`. Na extensão, o store passa a guardar as falas (captions) e o painel as exibe como legenda.
+**Architecture:** O servidor troca o STT falso por uma conexão Deepgram por canal. Um `UtteranceAssembler` transforma os resultados em parcial → segmento estável → fim de fala, e um `SentenceSplitter` decide quando uma frase do canal `them` está pronta e a envia ao cliente como `sentence.ready`. A tradução roda **na extensão**, no offscreen document, com a Translator API embutida do Chrome (no próprio computador, grátis, ~20 ms por frase). O store guarda as falas (captions) e o painel as exibe como legenda.
 
-**Tech Stack:** o do marco 1 + Deepgram Nova-3 (WebSocket `wss://api.deepgram.com/v1/listen`), Google Cloud Translation Basic v2 (`https://translation.googleapis.com/language/translate/v2`).
+**Tech Stack:** o do marco 1 + Deepgram Nova-3 (WebSocket `wss://api.deepgram.com/v1/listen`) + Translator API do Chrome (estável desde o Chrome 138; `Translator.create({ sourceLanguage: "en", targetLanguage: "pt" })`).
 
-**Troca de provedor (decisão do usuário em 2026-09-25):** o spec cita DeepL, mas o DeepL API Free não está disponível para o usuário; a tradução usa Google Cloud Translation. O `Translator` continua uma interface trocável.
+**Spec:** `docs/superpowers/specs/2026-09-25-snowspeak-realtime-engine-design.md` — implementa §4.3 (eventos de transcrição), §4.4, §4.5, §7 (linhas de STT e tradução) e a métrica de latência do STT de §1.
 
-**Spec:** `docs/superpowers/specs/2026-09-25-snowspeak-realtime-engine-design.md` — implementa §4.3 (eventos de transcrição/tradução), §4.4, §4.5, §7 (linhas de STT e tradução) e as métricas de latência de §1. **Ordem alterada pelo usuário em 2026-09-25:** marcos 3 e 4 antes do marco 2. Portanto não há reconexão/retomada nem medição de uso neste plano; a queda do socket continua encerrando a sessão, como no marco 1.
+**Decisões do usuário em 2026-09-25 que alteram o spec:**
+- Ordem: marcos 3 e 4 antes do marco 2. Não há reconexão/retomada nem medição de uso neste plano; a queda do socket continua encerrando a sessão, como no marco 1.
+- Tradução: o spec previa DeepL no servidor. O DeepL gratuito não está disponível para o usuário e ele quer custo zero; um teste (spike) confirmou a Translator API do Chrome nesta máquina: `create` em 1–80 ms, tradução em 15–28 ms, funciona no offscreen sem clique depois que o modelo foi baixado. O servidor passa a emitir `sentence.ready`; o evento `translation` do spec deixa de vir do servidor. Um tradutor de reserva no servidor fica para depois.
 
 ## Global Constraints
 
 - Deepgram: `model=nova-3`, `encoding=linear16`, `sample_rate=16000`, `channels=1`, `interim_results=true`, `smart_format=true`, `punctuate=true`, `endpointing=300`, `utterance_end_ms=1000`; canal `them` com `language=en`, canal `me` com `language=multi`. Autenticação `Authorization: Token <chave>`. Controle: `{"type":"Finalize"}`, `{"type":"CloseStream"}`.
 - `is_final=false` → `transcript.partial`; `is_final=true` → `transcript.segment` (não é fim de fala); `speech_final=true` ou `UtteranceEnd` → `utterance.end`, **uma única vez** por `utteranceId`. `UtteranceEnd` com `last_word_end` anterior ao início da fala atual é ignorado.
 - Fechamento forçado: `Finalize`, espera até **500 ms**; segmento com `from_finalize` encerra a fala normalmente; sem resposta → `utterance.end { interrupted: true }`. Parcial pendente **nunca** vira segmento.
-- Tradução só no canal `them`. Frase enviada quando: termina com `.`, `?` ou `!` (seguido de espaço ou fim); **2,5 s** desde que o trecho pendente começou; **30 palavras**; ou `utterance.end`. `sentenceIdx` atribuído pelo servidor, estável, reinicia em 0 a cada fala.
-- Google Cloud Translation Basic v2: `POST https://translation.googleapis.com/language/translate/v2`, chave no cabeçalho `X-goog-api-key` (nunca na URL), corpo `{ q: [texto], source: "en", target: "pt-BR", format: "text" }`, resposta `data.translations[0].translatedText`. A API não aceita contexto: o `Translator` recebe as 2 frases anteriores, mas o Google as ignora. Prazo de 5 s; **1 nova tentativa**; depois `translation.error`.
-- Sem chave de provedor → modo falso com aviso no log (STT com sonda de sinal do marco 1; tradução `[tradução falsa] …`).
-- Chaves só no servidor (`apps/server/.env`, fora do git). Logs sem conteúdo da conversa.
+- Frases só no canal `them`. Frase pronta quando: termina com `.`, `?` ou `!` (seguido de espaço ou fim); **2,5 s** desde que o trecho pendente começou; **30 palavras**; ou `utterance.end`. `sentenceIdx` atribuído pelo servidor, estável, reinicia em 0 a cada fala.
+- Tradução no offscreen com `Translator.create({ sourceLanguage: "en", targetLanguage: "pt" })`. O download do modelo exige clique do usuário: o painel prepara o tradutor no clique de Iniciar. Se o Chrome não conseguir traduzir, as falas continuam em inglês com o aviso "Tradução indisponível neste Chrome. As falas continuam em inglês." — nada trava.
+- Sem `DEEPGRAM_API_KEY` → STT falso (sonda de sinal do marco 1) com aviso no log.
+- Chave só no servidor (`apps/server/.env`, fora do git). Logs sem conteúdo da conversa.
 - `utteranceId` = `${channel}-${n}`. O painel guarda no máximo **200 falas**.
 - Textos da interface em português do Brasil.
 
 ## Review Focus
 
-1. Participante fala sem pausa por muito tempo → a tradução sai a cada frase, ou a cada 2,5 s / 30 palavras, sem esperar o fim da fala (testes na Task 3).
-2. Deepgram recusa a chave ou cai no meio da sessão → a captura continua, a fala aberta fecha como interrompida e o painel avisa "A transcrição parou" (testes nas Tasks 4 e 6).
-3. Google Translation fora do ar, lento, chave inválida ou sem cota (HTTP 403/429) → a frase fica só em inglês com aviso; nada trava (testes nas Tasks 5 e 6).
-4. Usuário clica Parar no meio de uma frase → as últimas palavras são finalizadas e traduzidas antes de `session.ended` (teste na Task 6).
-5. Sessão longa com centenas de falas → o painel mantém só as 200 mais recentes e continua fluido (teste na Task 7).
+1. Participante fala sem pausa por muito tempo → frases saem a cada pontuação, ou a cada 2,5 s / 30 palavras, sem esperar o fim da fala (testes na Task 3).
+2. Deepgram recusa a chave ou cai no meio da sessão → a captura continua, a fala aberta fecha como interrompida e o painel avisa "A transcrição parou" (testes nas Tasks 4 e 5).
+3. Tradutor do Chrome ausente, sem modelo ou falhando → as falas continuam em inglês com aviso; nenhuma falha de tradução trava a legenda (testes na Task 7).
+4. Usuário clica Parar no meio de uma frase → as últimas palavras são finalizadas e a frase é enviada para tradução antes de `session.ended` (teste na Task 5).
+5. Sessão longa com centenas de falas → o painel mantém só as 200 mais recentes e continua fluido (teste na Task 6).
 
 ---
 
 ## Estrutura de arquivos
 
 ```
-packages/shared/src/messages.ts            + eventos transcript.segment, utterance.end, translation, translation.error, error
+packages/shared/src/messages.ts            + eventos transcript.segment, utterance.end, sentence.ready, error
 
 apps/server/src/
   stt/types.ts                             SttResult ampliado; SttCallbacks; finalize()
@@ -46,61 +48,60 @@ apps/server/src/
   stt/fake-stt.ts (+test)                  adaptado à nova interface
   utterance-assembler.ts (+test)           parcial/segmento/fim de fala (puro)
   sentence-splitter.ts (+test)             quando uma frase está pronta (puro, timers)
-  translate/translator.ts (+test)          interface Translator + translateWithRetry
-  translate/google-translator.ts (+test)   cliente HTTP do Google Cloud Translation
-  translate/fake-translator.ts             tradução falsa para desenvolvimento
   latency.ts (+test)                       p50/p95
-  channel-pipeline.ts                      por canal: sequência, STT, montagem, tradução
+  channel-pipeline.ts                      por canal: sequência, STT, montagem, frases
   session.ts                               dois pipelines + seq dos eventos + drain
   gateway.ts                               Parar espera o drain
-  config.ts (+test)                        chaves dos provedores
-  providers.ts (+test)                     escolhe provedores reais ou falsos
+  config.ts (+test)                        chave do Deepgram
+  providers.ts (+test)                     Deepgram ou STT falso
   main.ts
   test-support/scripted-stt.ts             STT controlado pelos testes
+  test-support/test-client.ts              cliente WebSocket de teste (movido de gateway.test.ts)
   test-support/wait.ts                     waitUntil
-  session-transcription.test.ts            integração ponta a ponta com STT/tradução roteirizados
+  session-transcription.test.ts            integração ponta a ponta com STT roteirizado
 
 apps/extension/src/
-  offscreen/session-store.ts (+test)       captions (falas) no estado
+  offscreen/session-store.ts (+test)       captions (falas e frases) no estado
   sidepanel/caption-view.ts (+test)        texto exibido de cada fala (puro)
+  offscreen/chrome-translator.ts (+test)   adaptador da Translator API do Chrome
+  offscreen/translation-queue.ts (+test)   traduz cada sentence.ready e grava no store
+  offscreen/session-controller.ts (+test)  gancho onServerMessage
   offscreen/coalesce.ts (+test)            agrupa broadcasts do estado (50 ms)
-  offscreen/main.ts                        usa coalesce
-  sidepanel.html, sidepanel/main.ts, sidepanel/sidepanel.css   legenda
-README.md                                  chaves e roteiro dos marcos 3–4
+  offscreen/main.ts                        liga fila de tradução e coalesce
+  sidepanel.html, sidepanel/main.ts, sidepanel/sidepanel.css   legenda + preparo do tradutor
+README.md                                  chave do Deepgram e roteiro dos marcos 3–4
 ```
 
 ---
 
-### Task 1: Eventos de transcrição e tradução no protocolo
+### Task 1: Eventos de transcrição no protocolo
 
 **Files:**
 - Modify: `packages/shared/src/messages.ts`, `packages/shared/src/messages.test.ts`
-- Modify (compatibilidade temporária até a Task 6): `apps/server/src/session.ts`
+- Modify (compatibilidade temporária até a Task 5): `apps/server/src/session.ts`
 
 **Interfaces:**
 - Produces (em `@snowspeak/shared`): `ERROR_SCOPES`; corpos de evento
   - `{ type: "transcript.partial"; channel; utteranceId: string; text }`
   - `{ type: "transcript.segment"; channel; utteranceId; segmentIdx: number; text }`
   - `{ type: "utterance.end"; channel; utteranceId; interrupted: boolean }`
-  - `{ type: "translation"; channel; utteranceId; sentenceIdx: number; source: string; text: string }`
-  - `{ type: "translation.error"; channel; utteranceId; sentenceIdx }`
+  - `{ type: "sentence.ready"; channel; utteranceId; sentenceIdx: number; text }`
   - `{ type: "audio.gap"; … }` (inalterado)
   - `{ type: "error"; scope: "stt" | "translate" | "suggest" | "session"; code: string; retryable: boolean; message: string; channel?: Channel }`
-  - `EventEnvelope` perde `utteranceId` (agora faz parte dos corpos que o exigem) e mantém `channel` fora do envelope.
+  - `EventEnvelope` perde `utteranceId` (agora faz parte dos corpos que o exigem).
 
 - [ ] **Step 1: Escrever os testes novos**
 
-Em `packages/shared/src/messages.test.ts`, trocar o evento parcial usado em `distingue eventos` por um com `utteranceId: "them-1"`, e acrescentar ao `describe("mensagens do servidor")`:
+Em `packages/shared/src/messages.test.ts`, trocar o evento parcial usado em `distingue eventos` por um com `utteranceId: "them-1"`; no teste `rejeita evento sem seq, com seq inválido ou canal desconhecido`, acrescentar `utteranceId: "them-1"` ao objeto `partial`; e acrescentar ao `describe("mensagens do servidor")`:
 
 ```ts
-  it("aceita os eventos de transcrição e tradução", () => {
+  it("aceita os eventos de transcrição e de frase pronta", () => {
     const base = { v: 1, sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1" };
     const events = [
       { ...base, type: "transcript.partial", text: "hel" },
       { ...base, type: "transcript.segment", segmentIdx: 0, text: "Hello." },
       { ...base, type: "utterance.end", interrupted: false },
-      { ...base, type: "translation", sentenceIdx: 0, source: "Hello.", text: "Olá." },
-      { ...base, type: "translation.error", sentenceIdx: 1 },
+      { ...base, type: "sentence.ready", sentenceIdx: 0, text: "Hello." },
     ];
     for (const event of events) expect(parseServerMessage(JSON.stringify(event))).toEqual(event);
   });
@@ -116,13 +117,9 @@ Em `packages/shared/src/messages.test.ts`, trocar o evento parcial usado em `dis
     const base = { v: 1, sessionId: "s", seq: 1, ts: 0, channel: "them" };
     expect(parseServerMessage(JSON.stringify({ ...base, type: "transcript.partial", text: "x" }))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "transcript.segment", segmentIdx: -1, text: "x" }))).toBeNull();
-    expect(
-      parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "translation", sentenceIdx: 0.5, source: "a", text: "b" })),
-    ).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "sentence.ready", sentenceIdx: 0.5, text: "b" }))).toBeNull();
   });
 ```
-
-No teste existente `rejeita evento sem seq, com seq inválido ou canal desconhecido`, acrescentar `utteranceId: "them-1"` ao objeto `partial`.
 
 - [ ] **Step 2: Rodar e confirmar a falha**
 
@@ -170,20 +167,13 @@ const utteranceEndBody = z.object({
   interrupted: z.boolean(),
 });
 
-const translationBody = z.object({
-  type: z.literal("translation"),
+// Frase do canal them pronta para tradução (a tradução acontece no cliente).
+const sentenceReadyBody = z.object({
+  type: z.literal("sentence.ready"),
   channel: channelSchema,
   utteranceId: utteranceIdSchema,
   sentenceIdx: indexSchema,
-  source: z.string(),
   text: z.string(),
-});
-
-const translationErrorBody = z.object({
-  type: z.literal("translation.error"),
-  channel: channelSchema,
-  utteranceId: utteranceIdSchema,
-  sentenceIdx: indexSchema,
 });
 
 const audioGapBody = z.object({
@@ -208,8 +198,7 @@ const serverMessageSchema = z.discriminatedUnion("type", [
   transcriptPartialBody.extend(envelopeShape),
   transcriptSegmentBody.extend(envelopeShape),
   utteranceEndBody.extend(envelopeShape),
-  translationBody.extend(envelopeShape),
-  translationErrorBody.extend(envelopeShape),
+  sentenceReadyBody.extend(envelopeShape),
   audioGapBody.extend(envelopeShape),
   errorBody.extend(envelopeShape),
 ]);
@@ -227,8 +216,7 @@ export type ServerEventBody =
   | z.infer<typeof transcriptPartialBody>
   | z.infer<typeof transcriptSegmentBody>
   | z.infer<typeof utteranceEndBody>
-  | z.infer<typeof translationBody>
-  | z.infer<typeof translationErrorBody>
+  | z.infer<typeof sentenceReadyBody>
   | z.infer<typeof audioGapBody>
   | z.infer<typeof errorBody>;
 
@@ -246,7 +234,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
 }
 ```
 
-Compatibilidade temporária em `apps/server/src/session.ts` (substituída na Task 6): em `onSttResult`, emitir `{ type: "transcript.partial", channel, utteranceId: \`${channel}-1\`, text: result.text }`.
+Compatibilidade temporária em `apps/server/src/session.ts` (substituída na Task 5): em `onSttResult`, emitir `{ type: "transcript.partial", channel, utteranceId: \`${channel}-1\`, text: result.text }`.
 
 - [ ] **Step 4: Rodar testes e typecheck**
 
@@ -257,7 +245,7 @@ Expected: PASS e typecheck sem erros nos três pacotes.
 
 ```bash
 git add packages/shared apps/server/src/session.ts
-git commit -m "feat(shared): eventos de transcrição, tradução e erro no protocolo"
+git commit -m "feat(shared): eventos de transcrição, frase pronta e erro no protocolo"
 ```
 
 ---
@@ -607,7 +595,7 @@ export function createFakeSttFactory(options: { reportEveryMs?: number } = {}): 
 
 Em `apps/server/src/stt/fake-stt.test.ts`, trocar as duas chamadas `createFakeSttFactory(...)("them", (r) => results.push(r))` por `createFakeSttFactory(...)("them", { onResult: (r) => results.push(r), onError: () => {} })` (e o mesmo para `"me"`).
 
-Em `apps/server/src/session.ts` (compatível até a Task 6): a fábrica passa a receber `{ onResult: (result) => this.onSttResult(channel, result), onError: () => {} }`, e `onSttResult` só emite quando `result.kind === "partial"`.
+Em `apps/server/src/session.ts` (compatível até a Task 5): a fábrica passa a receber `{ onResult: (result) => this.onSttResult(channel, result), onError: () => {} }`, e `onSttResult` só emite quando `result.kind === "partial"`.
 
 - [ ] **Step 4: Rodar testes e typecheck**
 
@@ -1111,229 +1099,24 @@ git commit -m "feat(server): cliente de streaming do Deepgram"
 
 ---
 
-### Task 5: Tradução com Google Cloud Translation
+### Task 5: Pipeline por canal, sessão, gateway e provedor de STT
 
 **Files:**
-- Create: `apps/server/src/translate/translator.ts`, `apps/server/src/translate/google-translator.ts`, `apps/server/src/translate/fake-translator.ts`
-- Test: `apps/server/src/translate/translator.test.ts`, `apps/server/src/translate/google-translator.test.ts`
-
-**Interfaces:**
-- Produces:
-  - `interface Translator { translate(text: string, context: string): Promise<string> }`
-  - `translateWithRetry(translator: Translator, text: string, context: string): Promise<string>` (1 nova tentativa)
-  - `GOOGLE_TRANSLATE_URL`, `TRANSLATE_TIMEOUT_MS = 5000`, `createGoogleTranslator(options: { apiKey: string; url?: string; timeoutMs?: number }): Translator`
-  - `createFakeTranslator(): Translator`
-
-- [ ] **Step 1: Escrever os testes**
-
-Criar `apps/server/src/translate/translator.test.ts`:
-
-```ts
-import { describe, expect, it, vi } from "vitest";
-import { translateWithRetry, type Translator } from "./translator";
-
-function translatorFailing(times: number): Translator & { calls: number } {
-  const t = {
-    calls: 0,
-    translate: vi.fn(async (text: string) => {
-      t.calls += 1;
-      if (t.calls <= times) throw new Error("falhou");
-      return `pt:${text}`;
-    }),
-  };
-  return t;
-}
-
-describe("translateWithRetry", () => {
-  it("devolve a tradução na primeira tentativa", async () => {
-    const t = translatorFailing(0);
-    await expect(translateWithRetry(t, "Hi.", "")).resolves.toBe("pt:Hi.");
-    expect(t.calls).toBe(1);
-  });
-
-  it("tenta de novo uma vez", async () => {
-    const t = translatorFailing(1);
-    await expect(translateWithRetry(t, "Hi.", "ctx")).resolves.toBe("pt:Hi.");
-    expect(t.translate).toHaveBeenLastCalledWith("Hi.", "ctx");
-  });
-
-  it("desiste depois da segunda falha", async () => {
-    const t = translatorFailing(2);
-    await expect(translateWithRetry(t, "Hi.", "")).rejects.toThrow("falhou");
-    expect(t.calls).toBe(2);
-  });
-});
-```
-
-Criar `apps/server/src/translate/google-translator.test.ts`:
-
-```ts
-import { createServer, type IncomingMessage, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
-import { createGoogleTranslator } from "./google-translator";
-
-interface Captured {
-  url: string;
-  headers: IncomingMessage["headers"];
-  body: Record<string, unknown>;
-}
-
-let server: Server | null = null;
-
-async function startFakeGoogle(respond: (captured: Captured) => { status: number; body?: unknown; hang?: boolean }) {
-  const requests: Captured[] = [];
-  server = createServer((req, res) => {
-    let raw = "";
-    req.on("data", (chunk) => (raw += chunk));
-    req.on("end", () => {
-      const captured: Captured = { url: req.url ?? "", headers: req.headers, body: JSON.parse(raw) as Record<string, unknown> };
-      requests.push(captured);
-      const reply = respond(captured);
-      if (reply.hang) return;
-      res.writeHead(reply.status, { "content-type": "application/json" }).end(JSON.stringify(reply.body ?? {}));
-    });
-  });
-  await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/language/translate/v2`, requests };
-}
-
-const ok = (translatedText: string) => ({ status: 200, body: { data: { translations: [{ translatedText }] } } });
-
-afterEach(async () => {
-  server?.closeAllConnections();
-  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
-  server = null;
-});
-
-describe("GoogleTranslator", () => {
-  it("envia o texto de inglês para português do Brasil com a chave no cabeçalho", async () => {
-    const fake = await startFakeGoogle(() => ok("Olá, tudo bem?"));
-    const translator = createGoogleTranslator({ apiKey: "google-key", url: fake.url });
-    await expect(translator.translate("Hi, how are you?", "We met yesterday.")).resolves.toBe("Olá, tudo bem?");
-    const request = fake.requests[0]!;
-    expect(request.url).toBe("/language/translate/v2");
-    expect(request.headers["x-goog-api-key"]).toBe("google-key");
-    expect(request.body).toEqual({ q: ["Hi, how are you?"], source: "en", target: "pt-BR", format: "text" });
-  });
-
-  it("falha com o status quando a API recusa (chave inválida, cota)", async () => {
-    const fake = await startFakeGoogle(() => ({ status: 403, body: { error: { message: "API key not valid" } } }));
-    await expect(createGoogleTranslator({ apiKey: "k", url: fake.url }).translate("Hi.", "")).rejects.toThrow("403");
-  });
-
-  it("falha quando a resposta não traz tradução", async () => {
-    const fake = await startFakeGoogle(() => ({ status: 200, body: { data: { translations: [] } } }));
-    await expect(createGoogleTranslator({ apiKey: "k", url: fake.url }).translate("Hi.", "")).rejects.toThrow();
-  });
-
-  it("desiste quando a API não responde no prazo", async () => {
-    const fake = await startFakeGoogle(() => ({ status: 200, hang: true }));
-    await expect(createGoogleTranslator({ apiKey: "k", url: fake.url, timeoutMs: 50 }).translate("Hi.", "")).rejects.toThrow();
-  });
-});
-```
-
-- [ ] **Step 2: Rodar e confirmar a falha**
-
-Run: `pnpm test apps/server/src/translate`
-Expected: FAIL — módulos inexistentes.
-
-- [ ] **Step 3: Implementar**
-
-Criar `apps/server/src/translate/translator.ts`:
-
-```ts
-export interface Translator {
-  /** `context` são frases anteriores; provedores que aceitam contexto o usam sem traduzi-lo. */
-  translate(text: string, context: string): Promise<string>;
-}
-
-export async function translateWithRetry(translator: Translator, text: string, context: string): Promise<string> {
-  try {
-    return await translator.translate(text, context);
-  } catch {
-    return translator.translate(text, context);
-  }
-}
-```
-
-Criar `apps/server/src/translate/google-translator.ts`:
-
-```ts
-import type { Translator } from "./translator";
-
-export const GOOGLE_TRANSLATE_URL = "https://translation.googleapis.com/language/translate/v2";
-export const TRANSLATE_TIMEOUT_MS = 5_000;
-
-// Cloud Translation Basic v2. Não aceita contexto: o parâmetro da interface é ignorado aqui.
-export function createGoogleTranslator(options: { apiKey: string; url?: string; timeoutMs?: number }): Translator {
-  const url = options.url ?? GOOGLE_TRANSLATE_URL;
-
-  return {
-    async translate(text) {
-      const response = await fetch(url, {
-        method: "POST",
-        // Chave no cabeçalho, nunca na URL (URLs acabam em logs).
-        headers: { "X-goog-api-key": options.apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ q: [text], source: "en", target: "pt-BR", format: "text" }),
-        signal: AbortSignal.timeout(options.timeoutMs ?? TRANSLATE_TIMEOUT_MS),
-      });
-      if (!response.ok) throw new Error(`Google Translation respondeu HTTP ${response.status}`);
-
-      const data = (await response.json()) as { data?: { translations?: Array<{ translatedText?: unknown }> } };
-      const translated = data.data?.translations?.[0]?.translatedText;
-      if (typeof translated !== "string") throw new Error("Google Translation: resposta sem tradução");
-      return translated;
-    },
-  };
-}
-```
-
-Criar `apps/server/src/translate/fake-translator.ts`:
-
-```ts
-import type { Translator } from "./translator";
-
-// Usado sem GOOGLE_TRANSLATE_API_KEY: deixa visível no painel que a tradução não é real.
-export function createFakeTranslator(): Translator {
-  return {
-    translate: (text) => Promise.resolve(`[tradução falsa] ${text}`),
-  };
-}
-```
-
-- [ ] **Step 4: Rodar os testes**
-
-Run: `pnpm test apps/server/src/translate && pnpm --filter @snowspeak/server typecheck`
-Expected: PASS (7 testes) e typecheck sem erros.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add apps/server/src/translate
-git commit -m "feat(server): tradução EN→PT-BR com Google Cloud Translation e nova tentativa"
-```
-
----
-
-### Task 6: Pipeline por canal, sessão, gateway e provedores
-
-**Files:**
-- Create: `apps/server/src/latency.ts`, `apps/server/src/channel-pipeline.ts`, `apps/server/src/providers.ts`, `apps/server/src/test-support/scripted-stt.ts`
+- Create: `apps/server/src/latency.ts`, `apps/server/src/channel-pipeline.ts`, `apps/server/src/providers.ts`, `apps/server/src/test-support/scripted-stt.ts`, `apps/server/src/test-support/test-client.ts`
 - Modify: `apps/server/src/session.ts`, `apps/server/src/gateway.ts`, `apps/server/src/config.ts`, `apps/server/src/main.ts`, `apps/server/.env.example`, `apps/server/src/gateway.test.ts`, `apps/server/src/config.test.ts`
 - Test: `apps/server/src/latency.test.ts`, `apps/server/src/providers.test.ts`, `apps/server/src/session-transcription.test.ts`
 
 **Interfaces:**
-- Consumes: Tasks 1–5.
+- Consumes: Tasks 1–4.
 - Produces:
   - `class LatencyStats { add(ms: number): void; summary(): { count: number; p50: number | null; p95: number | null } }`, `formatLatency(label: string, stats: LatencyStats): string`
-  - `FINALIZE_WAIT_MS = 500`, `TRANSLATION_DRAIN_MS = 2000`, `class ChannelPipeline { constructor(deps); acceptFrame(frame): boolean; drain(): Promise<void>; close(): void }`
-  - `Session { acceptFrame(frame): boolean; drain(): Promise<void>; close(): void }` com `SessionDeps { sttFactory; translator: Translator | null; send; now? }`
-  - `GatewayDeps { sttFactory: SttFactory; translator: Translator | null }`
-  - `ServerConfig` + `deepgramApiKey: string | null`, `googleTranslateApiKey: string | null`
-  - `createProviders(config): { sttFactory; translator; description: string }`
+  - `FINALIZE_WAIT_MS = 500`, `class ChannelPipeline { constructor(deps: ChannelPipelineDeps); acceptFrame(frame): boolean; drain(): Promise<void>; close(): void }` com `ChannelPipelineDeps { channel; sttFactory; splitSentences: boolean; emit; sttLatency: LatencyStats; now }`
+  - `Session { acceptFrame(frame): boolean; drain(): Promise<void>; close(): void }` com `SessionDeps { sttFactory; send; now? }`
+  - `GatewayDeps { sttFactory: SttFactory }` (inalterado)
+  - `ServerConfig` + `deepgramApiKey: string | null`
+  - `createProviders(config): { sttFactory: SttFactory; description: string }`
   - `createScriptedSttHub(): { factory: SttFactory; channel(c: Channel): ScriptedChannel }`
+  - `test-support/test-client.ts`: `TestClient` (com `drop()` e `types()`), `ORIGIN`, `START`, `testConfig(overrides?: Partial<ServerConfig>): ServerConfig`
 
 - [ ] **Step 1: Escrever os testes**
 
@@ -1360,9 +1143,9 @@ describe("LatencyStats", () => {
 
   it("formata com e sem amostras", () => {
     const stats = new LatencyStats();
-    expect(formatLatency("tradução", stats)).toBe("tradução: sem amostras");
+    expect(formatLatency("STT", stats)).toBe("STT: sem amostras");
     stats.add(180.4);
-    expect(formatLatency("tradução", stats)).toBe("tradução p50 180 ms · p95 180 ms (n=1)");
+    expect(formatLatency("STT", stats)).toBe("STT p50 180 ms · p95 180 ms (n=1)");
   });
 });
 ```
@@ -1377,14 +1160,12 @@ import { createProviders } from "./providers";
 const base = { ACCESS_KEYS: "k", ALLOWED_ORIGINS: "chrome-extension://x" };
 
 describe("createProviders", () => {
-  it("usa provedores falsos quando faltam as chaves", () => {
-    const providers = createProviders(loadConfig(base));
-    expect(providers.description).toBe("STT: falso (sem DEEPGRAM_API_KEY) · tradução: falsa (sem GOOGLE_TRANSLATE_API_KEY)");
+  it("usa o STT falso quando falta a chave", () => {
+    expect(createProviders(loadConfig(base)).description).toBe("STT: falso (sem DEEPGRAM_API_KEY) · tradução: no Chrome do usuário");
   });
 
-  it("usa Deepgram e Google Translation quando as chaves existem", () => {
-    const providers = createProviders(loadConfig({ ...base, DEEPGRAM_API_KEY: "dg", GOOGLE_TRANSLATE_API_KEY: "gt" }));
-    expect(providers.description).toBe("STT: Deepgram · tradução: Google Translation");
+  it("usa o Deepgram quando a chave existe", () => {
+    expect(createProviders(loadConfig({ ...base, DEEPGRAM_API_KEY: "dg" })).description).toBe("STT: Deepgram · tradução: no Chrome do usuário");
   });
 });
 ```
@@ -1392,10 +1173,9 @@ describe("createProviders", () => {
 Em `apps/server/src/config.test.ts`, acrescentar:
 
 ```ts
-  it("lê as chaves dos provedores e trata vazio como ausente", () => {
-    const config = loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: " dg ", GOOGLE_TRANSLATE_API_KEY: "" });
-    expect(config.deepgramApiKey).toBe("dg");
-    expect(config.googleTranslateApiKey).toBeNull();
+  it("lê a chave do Deepgram e trata vazio como ausente", () => {
+    expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: " dg " }).deepgramApiKey).toBe("dg");
+    expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: "" }).deepgramApiKey).toBeNull();
   });
 ```
 
@@ -1451,7 +1231,7 @@ export function createScriptedSttHub(): { factory: SttFactory; channel(channel: 
 }
 ```
 
-Mover a classe `TestClient`, as constantes `ORIGIN`/`START` e a configuração de teste de `gateway.test.ts` para `apps/server/src/test-support/test-client.ts` (exportando `TestClient`, `ORIGIN`, `START` e `testConfig(overrides?: Partial<ServerConfig>): ServerConfig` com `deepgramApiKey: null, googleTranslateApiKey: null`), acrescentando à classe:
+Criar `apps/server/src/test-support/test-client.ts` movendo de `gateway.test.ts` a classe `TestClient` e as constantes `ORIGIN` e `START` (exportadas), acrescentando à classe:
 
 ```ts
   drop(): void {
@@ -1463,19 +1243,33 @@ Mover a classe `TestClient`, as constantes `ORIGIN`/`START` e a configuração d
   }
 ```
 
-e fazer `gateway.test.ts` importar de lá e iniciar o gateway com `startGateway(testConfig(), { sttFactory: createFakeSttFactory(), translator: null })`.
+e a fábrica de configuração:
+
+```ts
+export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
+  return {
+    port: 0,
+    host: "127.0.0.1",
+    accessKeys: new Set(["key-1"]),
+    allowedOrigins: new Set([ORIGIN]),
+    authTimeoutMs: 200,
+    deepgramApiKey: null,
+    ...overrides,
+  };
+}
+```
+
+Em `gateway.test.ts`, remover a classe e as constantes movidas, importar `TestClient`, `START` e `testConfig` de `./test-support/test-client` e iniciar o gateway com `startGateway(testConfig(), { sttFactory: createFakeSttFactory() })`.
 
 Criar `apps/server/src/session-transcription.test.ts`:
 
 ```ts
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ServerMessage } from "@snowspeak/shared";
+import { afterEach, describe, expect, it } from "vitest";
 import { startGateway, type Gateway } from "./gateway";
 import type { SttResult } from "./stt/types";
 import { createScriptedSttHub } from "./test-support/scripted-stt";
 import { TestClient, testConfig } from "./test-support/test-client";
 import { waitUntil } from "./test-support/wait";
-import type { Translator } from "./translate/translator";
 
 const segment = (text: string, start: number, end: number, flags: { speechFinal?: boolean; fromFinalize?: boolean } = {}): SttResult => ({
   kind: "segment",
@@ -1486,24 +1280,18 @@ const segment = (text: string, start: number, end: number, flags: { speechFinal?
   fromFinalize: flags.fromFinalize ?? false,
 });
 
-function translatorFrom(impl: (text: string, context: string) => Promise<string>): Translator & { translate: ReturnType<typeof vi.fn> } {
-  return { translate: vi.fn(impl) };
-}
-
-const ptTranslator = () => translatorFrom(async (text) => `pt:${text}`);
-
-describe("transcrição e tradução de ponta a ponta", () => {
+describe("transcrição de ponta a ponta", () => {
   let gateway: Gateway;
 
   afterEach(async () => {
     await gateway.close();
   });
 
-  async function setup(translator: Translator = ptTranslator()) {
+  async function setup() {
     const hub = createScriptedSttHub();
-    gateway = await startGateway(testConfig(), { sttFactory: hub.factory, translator });
+    gateway = await startGateway(testConfig(), { sttFactory: hub.factory });
     const client = await TestClient.started(gateway.url);
-    return { hub, client, translator };
+    return { hub, client };
   }
 
   const events = (client: TestClient, type: string) => client.messages.filter((m) => m.type === type);
@@ -1514,48 +1302,35 @@ describe("transcrição e tradução de ponta a ponta", () => {
     them.emit({ kind: "partial", text: "hello" });
     them.emit(segment("Hello there.", 0, 0.8, { speechFinal: true }));
     await client.waitFor((m) => m.type === "utterance.end");
-    expect(client.messages.filter((m) => m.type !== "session.started" && m.type !== "translation")).toMatchObject([
+    expect(client.messages.filter((m) => m.type !== "session.started" && m.type !== "sentence.ready")).toMatchObject([
       { type: "transcript.partial", channel: "them", utteranceId: "them-1", text: "hello" },
       { type: "transcript.segment", channel: "them", utteranceId: "them-1", segmentIdx: 0, text: "Hello there." },
       { type: "utterance.end", channel: "them", utteranceId: "them-1", interrupted: false },
     ]);
   });
 
-  it("traduz cada frase do canal them assim que ela termina", async () => {
+  it("envia a frase do canal them assim que ela termina", async () => {
     const { hub, client } = await setup();
     hub.channel("them").emit(segment("Hello there.", 0, 0.8));
-    const translation = await client.waitFor((m) => m.type === "translation");
-    expect(translation).toMatchObject({ channel: "them", utteranceId: "them-1", sentenceIdx: 0, source: "Hello there.", text: "pt:Hello there." });
+    const sentence = await client.waitFor((m) => m.type === "sentence.ready");
+    expect(sentence).toMatchObject({ channel: "them", utteranceId: "them-1", sentenceIdx: 0, text: "Hello there." });
   });
 
-  it("envia as frases anteriores como contexto", async () => {
-    const translator = ptTranslator();
-    const { hub, client } = await setup(translator);
+  it("frase sem pontuação sai no fim da fala", async () => {
+    const { hub, client } = await setup();
     const them = hub.channel("them");
-    them.emit(segment("We met yesterday.", 0, 1));
-    them.emit(segment("Did you like it?", 1.2, 2));
-    await waitUntil(() => events(client, "translation").length === 2);
-    expect(translator.translate).toHaveBeenNthCalledWith(1, "We met yesterday.", "");
-    expect(translator.translate).toHaveBeenNthCalledWith(2, "Did you like it?", "We met yesterday.");
+    them.emit(segment("so we were thinking", 0, 1));
+    them.emit(segment("about it", 1.1, 1.5, { speechFinal: true }));
+    const sentence = await client.waitFor((m) => m.type === "sentence.ready");
+    expect(sentence).toMatchObject({ sentenceIdx: 0, text: "so we were thinking about it" });
   });
 
-  it("não traduz as falas do usuário", async () => {
-    const translator = ptTranslator();
-    const { hub, client } = await setup(translator);
+  it("não gera frases para as falas do usuário", async () => {
+    const { hub, client } = await setup();
     hub.channel("me").emit(segment("Sure, sounds good.", 0, 1, { speechFinal: true }));
     await client.waitFor((m) => m.type === "utterance.end" && m.channel === "me");
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(translator.translate).not.toHaveBeenCalled();
-    expect(events(client, "translation")).toEqual([]);
-  });
-
-  it("marca translation.error quando a tradução falha duas vezes", async () => {
-    const translator = translatorFrom(() => Promise.reject(new Error("HTTP 429")));
-    const { hub, client } = await setup(translator);
-    hub.channel("them").emit(segment("Hello.", 0, 0.5));
-    const error = await client.waitFor((m) => m.type === "translation.error");
-    expect(error).toMatchObject({ channel: "them", utteranceId: "them-1", sentenceIdx: 0 });
-    expect(translator.translate).toHaveBeenCalledTimes(2);
+    expect(events(client, "sentence.ready")).toEqual([]);
   });
 
   it("fecha a fala como interrompida e avisa quando o STT cai, sem derrubar a sessão", async () => {
@@ -1569,7 +1344,7 @@ describe("transcrição e tradução de ponta a ponta", () => {
     expect(client.ws.readyState).toBe(client.ws.OPEN);
   });
 
-  it("ao parar, pede Finalize e entrega a fala e a tradução antes de encerrar", async () => {
+  it("ao parar, pede Finalize e entrega a fala e a frase antes de encerrar", async () => {
     const { hub, client } = await setup();
     const them = hub.channel("them");
     them.emit({ kind: "partial", text: "almost do" });
@@ -1578,7 +1353,7 @@ describe("transcrição e tradução de ponta a ponta", () => {
     expect((await client.closed).code).toBe(4410);
     expect(them.finalizes).toBe(1);
     const order = client.types().filter((t) => t !== "session.started" && t !== "transcript.partial");
-    expect(order).toEqual(["transcript.segment", "utterance.end", "translation", "session.ended"]);
+    expect(order).toEqual(["transcript.segment", "utterance.end", "sentence.ready", "session.ended"]);
     expect(events(client, "utterance.end")).toMatchObject([{ interrupted: false }]);
     expect(them.closed).toBe(true);
   });
@@ -1605,10 +1380,9 @@ describe("transcrição e tradução de ponta a ponta", () => {
     hub.channel("them").emit({ kind: "partial", text: "slow" });
     client.sendJson({ type: "session.stop" });
     client.sendSilence("them", 0);
-    const closed = await client.closed;
-    expect(closed.code).toBe(4410);
+    expect((await client.closed).code).toBe(4410);
     expect(hub.channel("them").writes).toBe(0);
-    expect(client.messages.some((m: ServerMessage) => m.type === "session.ended")).toBe(true);
+    expect(client.types()).toContain("session.ended");
   });
 });
 ```
@@ -1616,9 +1390,9 @@ describe("transcrição e tradução de ponta a ponta", () => {
 - [ ] **Step 2: Rodar e confirmar a falha**
 
 Run: `pnpm test apps/server`
-Expected: FAIL — `./latency`, `./providers` inexistentes; `session-transcription.test.ts` falha porque o gateway ainda não aceita `translator` nem emite segmentos/traduções.
+Expected: FAIL — `./latency`, `./providers` inexistentes e `session-transcription.test.ts` falha (a sessão ainda não emite segmentos nem frases).
 
-- [ ] **Step 3: Implementar latência, pipeline, sessão, gateway, config e provedores**
+- [ ] **Step 3: Implementar latência, pipeline, sessão, gateway, config e provedor**
 
 Criar `apps/server/src/latency.ts`:
 
@@ -1651,50 +1425,40 @@ Criar `apps/server/src/channel-pipeline.ts`:
 import { frameSamples, samplesToMs, type AudioFrame, type Channel, type ServerEventBody } from "@snowspeak/shared";
 import { ChannelSequencer } from "./channel-sequencer";
 import type { LatencyStats } from "./latency";
-import { SentenceSplitter, type SentenceReady } from "./sentence-splitter";
+import { SentenceSplitter } from "./sentence-splitter";
 import type { SttFactory, SttResult, SttStream } from "./stt/types";
-import { translateWithRetry, type Translator } from "./translate/translator";
 import { UtteranceAssembler, type AssemblerOutput } from "./utterance-assembler";
 
 export const FINALIZE_WAIT_MS = 500;
-export const TRANSLATION_DRAIN_MS = 2_000;
-const CONTEXT_SENTENCES = 2;
-
-export interface PipelineLatency {
-  stt: LatencyStats;
-  translation: LatencyStats;
-}
 
 export interface ChannelPipelineDeps {
   channel: Channel;
   sttFactory: SttFactory;
-  /** null: canal sem tradução (me) ou tradução desligada. */
-  translator: Translator | null;
+  /** Canal them: divide as falas em frases para o cliente traduzir. */
+  splitSentences: boolean;
   emit: (body: ServerEventBody) => void;
-  latency: PipelineLatency;
+  sttLatency: LatencyStats;
   now: () => number;
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-// Um canal de áudio: continuidade dos frames → STT → falas → frases → tradução.
+// Um canal de áudio: continuidade dos frames → STT → falas → frases.
 export class ChannelPipeline {
   private readonly sequencer = new ChannelSequencer();
   private readonly assembler: UtteranceAssembler;
   private readonly splitter: SentenceSplitter | null;
   private stt: SttStream | null;
   private sttStartedAt: number | null = null;
-  private readonly recentSentences: string[] = [];
-  private readonly inflight = new Set<Promise<void>>();
   private onUtteranceClosed: (() => void) | null = null;
 
   constructor(private readonly deps: ChannelPipelineDeps) {
     this.assembler = new UtteranceAssembler(deps.channel);
-    this.splitter = deps.translator ? new SentenceSplitter((sentence) => this.translate(sentence)) : null;
+    this.splitter = deps.splitSentences
+      ? new SentenceSplitter((sentence) =>
+          deps.emit({ type: "sentence.ready", channel: deps.channel, utteranceId: sentence.utteranceId, sentenceIdx: sentence.sentenceIdx, text: sentence.text }),
+        )
+      : null;
     this.stt = deps.sttFactory(deps.channel, {
       onResult: (result) => this.onSttResult(result),
       onError: (error) => this.onSttError(error),
@@ -1714,7 +1478,7 @@ export class ChannelPipeline {
     return true;
   }
 
-  /** Parar: pede ao STT o que falta (até 500 ms) e espera as traduções em andamento (até 2 s). */
+  /** Parar: pede ao STT o que falta e espera até 500 ms; o que sobrar fecha como interrompido. */
   async drain(): Promise<void> {
     if (this.stt && this.assembler.hasOpenUtterance) {
       const closed = new Promise<void>((resolve) => {
@@ -1725,7 +1489,6 @@ export class ChannelPipeline {
       this.onUtteranceClosed = null;
     }
     this.handleAll(this.assembler.forceClose());
-    if (this.inflight.size > 0) await Promise.race([Promise.allSettled([...this.inflight]), delay(TRANSLATION_DRAIN_MS)]);
   }
 
   close(): void {
@@ -1737,7 +1500,7 @@ export class ChannelPipeline {
   private onSttResult(result: SttResult): void {
     if (result.kind === "segment" && result.text && this.sttStartedAt !== null) {
       // Aproximação: o áudio é enviado em tempo real, então o fim da fala no stream ≈ início + end.
-      this.deps.latency.stt.add(this.deps.now() - (this.sttStartedAt + result.end * 1_000));
+      this.deps.sttLatency.add(this.deps.now() - (this.sttStartedAt + result.end * 1_000));
     }
     this.handleAll(this.assembler.push(result));
   }
@@ -1770,29 +1533,6 @@ export class ChannelPipeline {
       this.onUtteranceClosed?.();
     }
   }
-
-  private translate(sentence: SentenceReady): void {
-    const translator = this.deps.translator;
-    if (!translator) return;
-    const context = this.recentSentences.slice(-CONTEXT_SENTENCES).join(" ");
-    this.recentSentences.push(sentence.text);
-    if (this.recentSentences.length > CONTEXT_SENTENCES) this.recentSentences.shift();
-
-    const startedAt = this.deps.now();
-    const { channel } = this.deps;
-    const task = translateWithRetry(translator, sentence.text, context).then(
-      (text) => {
-        this.deps.latency.translation.add(this.deps.now() - startedAt);
-        this.deps.emit({ type: "translation", channel, utteranceId: sentence.utteranceId, sentenceIdx: sentence.sentenceIdx, source: sentence.text, text });
-      },
-      (error: unknown) => {
-        console.warn(`tradução falhou: ${errorText(error)}`);
-        this.deps.emit({ type: "translation.error", channel, utteranceId: sentence.utteranceId, sentenceIdx: sentence.sentenceIdx });
-      },
-    );
-    this.inflight.add(task);
-    void task.finally(() => this.inflight.delete(task));
-  }
 }
 ```
 
@@ -1804,11 +1544,9 @@ import type { AudioFrame, Channel, Mode, ServerEventBody, ServerMessage } from "
 import { ChannelPipeline } from "./channel-pipeline";
 import { LatencyStats, formatLatency } from "./latency";
 import type { SttFactory } from "./stt/types";
-import type { Translator } from "./translate/translator";
 
 export interface SessionDeps {
   sttFactory: SttFactory;
-  translator: Translator | null;
   send: (message: ServerMessage) => void;
   now?: () => number;
 }
@@ -1818,7 +1556,7 @@ export class Session {
   readonly resumeToken = randomBytes(32).toString("base64url");
   private seq = 0;
   private closed = false;
-  private readonly latency = { stt: new LatencyStats(), translation: new LatencyStats() };
+  private readonly sttLatency = new LatencyStats();
   private readonly pipelines: Record<Channel, ChannelPipeline>;
 
   constructor(
@@ -1831,9 +1569,9 @@ export class Session {
       new ChannelPipeline({
         channel,
         sttFactory: deps.sttFactory,
-        translator: channel === "them" ? deps.translator : null,
+        splitSentences: channel === "them",
         emit: (body) => this.emit(body),
-        latency: this.latency,
+        sttLatency: this.sttLatency,
         now,
       });
     this.pipelines = { them: pipeline("them"), me: pipeline("me") };
@@ -1852,9 +1590,7 @@ export class Session {
     this.closed = true;
     this.pipelines.them.close();
     this.pipelines.me.close();
-    console.info(
-      `sessão ${this.id.slice(0, 8)} encerrada · ${formatLatency("STT (segmento final)", this.latency.stt)} · ${formatLatency("tradução", this.latency.translation)}`,
-    );
+    console.info(`sessão ${this.id.slice(0, 8)} encerrada · ${formatLatency("STT (segmento final)", this.sttLatency)}`);
   }
 
   private emit(body: ServerEventBody): void {
@@ -1865,16 +1601,14 @@ export class Session {
 ```
 
 Em `apps/server/src/gateway.ts`:
-- `GatewayDeps` passa a ser `{ sttFactory: SttFactory; translator: Translator | null }` (import `type Translator` de `./translate/translator`).
-- A criação da sessão vira `new Session({ sttFactory: deps.sttFactory, translator: deps.translator, send }, message.mode, message.context)`.
-- Declarar `let stopping = false;` ao lado de `session`, e no começo do ramo binário, depois do teste `if (!session)`, acrescentar `if (stopping) return;`. No ramo de texto, depois do bloco `if (!session) { … }`, acrescentar `if (stopping) return;`.
+- Declarar `let stopping = false;` ao lado de `session`. No ramo binário, depois de `if (!session) { … }`, acrescentar `if (stopping) return;`. No ramo de texto, depois do bloco `if (!session) { … }`, acrescentar `if (stopping) return;`.
 - Substituir o tratamento de `session.stop` por:
 
 ```ts
     if (message?.type === "session.stop") {
       stopping = true;
       const current = session;
-      // Entrega as últimas palavras e traduções antes de encerrar.
+      // Entrega as últimas palavras e frases antes de encerrar.
       void current.drain().finally(() => {
         send({ v: 1, type: "session.ended", sessionId: current.id, reason: "stopped" });
         current.close();
@@ -1884,12 +1618,7 @@ Em `apps/server/src/gateway.ts`:
     }
 ```
 
-Em `apps/server/src/config.ts`, acrescentar à interface `deepgramApiKey: string | null; googleTranslateApiKey: string | null;` e ao retorno de `loadConfig`:
-
-```ts
-    deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() || null,
-    googleTranslateApiKey: env.GOOGLE_TRANSLATE_API_KEY?.trim() || null,
-```
+Em `apps/server/src/config.ts`, acrescentar à interface `deepgramApiKey: string | null;` e ao retorno de `loadConfig` `deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() || null,`.
 
 Criar `apps/server/src/providers.ts`:
 
@@ -1898,13 +1627,9 @@ import type { ServerConfig } from "./config";
 import { createDeepgramSttFactory } from "./stt/deepgram-stt";
 import { createFakeSttFactory } from "./stt/fake-stt";
 import type { SttFactory } from "./stt/types";
-import { createFakeTranslator } from "./translate/fake-translator";
-import { createGoogleTranslator } from "./translate/google-translator";
-import type { Translator } from "./translate/translator";
 
 export interface Providers {
   sttFactory: SttFactory;
-  translator: Translator;
   description: string;
 }
 
@@ -1912,14 +1637,7 @@ export function createProviders(config: ServerConfig): Providers {
   const stt = config.deepgramApiKey
     ? { factory: createDeepgramSttFactory({ apiKey: config.deepgramApiKey }), label: "Deepgram" }
     : { factory: createFakeSttFactory(), label: "falso (sem DEEPGRAM_API_KEY)" };
-  const translation = config.googleTranslateApiKey
-    ? { translator: createGoogleTranslator({ apiKey: config.googleTranslateApiKey }), label: "Google Translation" }
-    : { translator: createFakeTranslator(), label: "falsa (sem GOOGLE_TRANSLATE_API_KEY)" };
-  return {
-    sttFactory: stt.factory,
-    translator: translation.translator,
-    description: `STT: ${stt.label} · tradução: ${translation.label}`,
-  };
+  return { sttFactory: stt.factory, description: `STT: ${stt.label} · tradução: no Chrome do usuário` };
 }
 ```
 
@@ -1932,7 +1650,7 @@ import { createProviders } from "./providers";
 
 const config = loadConfig();
 const providers = createProviders(config);
-const gateway = await startGateway(config, { sttFactory: providers.sttFactory, translator: providers.translator });
+const gateway = await startGateway(config, { sttFactory: providers.sttFactory });
 console.log(`SnowSpeak server ouvindo em ${config.host}:${config.port} (ws em /ws, tom de teste em /tone)`);
 console.log(providers.description);
 
@@ -1946,9 +1664,8 @@ process.on("SIGINT", shutdown);
 Acrescentar ao fim de `apps/server/.env.example`:
 
 ```
-# provedores (sem chave, o servidor usa versões falsas)
+# transcrição (sem chave, o servidor usa o STT falso)
 DEEPGRAM_API_KEY=
-GOOGLE_TRANSLATE_API_KEY=
 ```
 
 - [ ] **Step 4: Rodar toda a suíte do servidor e o typecheck**
@@ -1960,12 +1677,12 @@ Expected: PASS em todos os testes do servidor (inclusive os do marco 1 em `gatew
 
 ```bash
 git add apps/server
-git commit -m "feat(server): pipeline de transcrição e tradução por canal, Parar com finalização e métricas de latência"
+git commit -m "feat(server): pipeline de transcrição por canal, frases para tradução, Parar com finalização e latência do STT"
 ```
 
 ---
 
-### Task 7: Store com as falas (captions) e texto exibido
+### Task 6: Store com as falas (captions) e texto exibido
 
 **Files:**
 - Modify: `apps/extension/src/offscreen/session-store.ts`, `apps/extension/src/offscreen/session-store.test.ts`
@@ -1976,8 +1693,10 @@ git commit -m "feat(server): pipeline de transcrição e tradução por canal, P
 - Consumes: eventos da Task 1.
 - Produces:
   - `MAX_CAPTIONS = 200`
-  - `interface Caption { utteranceId: string; channel: Channel; segments: string[]; partial: string; ended: boolean; interrupted: boolean; translations: Record<number, string | null> }` (`null` = tradução falhou)
+  - `interface CaptionSentence { source: string; translation: string | null; failed: boolean }`
+  - `interface Caption { utteranceId: string; channel: Channel; segments: string[]; partial: string; ended: boolean; interrupted: boolean; sentences: Record<number, CaptionSentence> }`
   - `ChannelView` perde `lastPartial`; `SessionState` ganha `captions: Caption[]` e `notice: string | null`
+  - `StoreAction` ganha `{ type: "sentence-translated"; utteranceId; sentenceIdx; text }`, `{ type: "sentence-translation-failed"; utteranceId; sentenceIdx }`, `{ type: "notice"; message: string }`
   - `interface CaptionView { speaker: string; english: string; partial: string; portuguese: string; translating: boolean; translationFailed: boolean; interrupted: boolean }`, `captionView(caption: Caption): CaptionView`
 
 - [ ] **Step 1: Escrever os testes**
@@ -1985,7 +1704,7 @@ git commit -m "feat(server): pipeline de transcrição e tradução por canal, P
 Em `apps/extension/src/offscreen/session-store.test.ts`:
 - trocar a fábrica `partial` para incluir `utteranceId: "them-1"`;
 - nos testes que liam `channels.them.lastPartial`, passar a ler `captions[0]?.partial` (em `aplica o texto parcial…` esperar `"dois"`; em `session.ended…` esperar `"último"`; em `snapshot devolve…` usar `toMatchObject({ status: "running", captions: [{ partial: "olá" }] })`);
-- acrescentar:
+- importar `MAX_CAPTIONS` de `./session-store` e acrescentar:
 
 ```ts
 const event = (seq: number, body: Record<string, unknown>): ServerMessage =>
@@ -2001,18 +1720,28 @@ describe("falas", () => {
       { type: "server", message: event(4, { type: "utterance.end", interrupted: false }) },
     );
     expect(state.captions).toEqual([
-      { utteranceId: "them-1", channel: "them", segments: ["Hello there."], partial: "", ended: true, interrupted: false, translations: {} },
+      { utteranceId: "them-1", channel: "them", segments: ["Hello there."], partial: "", ended: true, interrupted: false, sentences: {} },
     ]);
   });
 
-  it("guarda traduções por frase e marca as que falharam", () => {
+  it("registra frases prontas, traduções e falhas", () => {
     const state = run(
       { type: "server", message: started },
       { type: "server", message: event(1, { type: "transcript.segment", segmentIdx: 0, text: "Hi. Bye." }) },
-      { type: "server", message: event(2, { type: "translation", sentenceIdx: 1, source: "Bye.", text: "Tchau." }) },
-      { type: "server", message: event(3, { type: "translation.error", sentenceIdx: 0 }) },
+      { type: "server", message: event(2, { type: "sentence.ready", sentenceIdx: 0, text: "Hi." }) },
+      { type: "server", message: event(3, { type: "sentence.ready", sentenceIdx: 1, text: "Bye." }) },
+      { type: "sentence-translated", utteranceId: "them-1", sentenceIdx: 1, text: "Tchau." },
+      { type: "sentence-translation-failed", utteranceId: "them-1", sentenceIdx: 0 },
     );
-    expect(state.captions[0]?.translations).toEqual({ 0: null, 1: "Tchau." });
+    expect(state.captions[0]?.sentences).toEqual({
+      0: { source: "Hi.", translation: null, failed: true },
+      1: { source: "Bye.", translation: "Tchau.", failed: false },
+    });
+  });
+
+  it("ignora tradução de uma fala que já saiu da legenda", () => {
+    const before = run({ type: "server", message: started });
+    expect(reduce(before, { type: "sentence-translated", utteranceId: "them-9", sentenceIdx: 0, text: "x" })).toBe(before);
   });
 
   it("remove a fala encerrada sem nenhum segmento estável", () => {
@@ -2044,7 +1773,7 @@ describe("falas", () => {
     expect(state.captions[0]?.utteranceId).toBe("them-6");
   });
 
-  it("evento de erro vira aviso sem encerrar a sessão", () => {
+  it("evento de erro e aviso local viram aviso sem encerrar a sessão", () => {
     const state = run(
       { type: "starting" },
       { type: "server", message: started },
@@ -2054,12 +1783,14 @@ describe("falas", () => {
       },
     );
     expect(state).toMatchObject({ status: "running", notice: "A transcrição parou." });
+    expect(reduce(state, { type: "notice", message: "Tradução indisponível." }).notice).toBe("Tradução indisponível.");
   });
 
   it("um novo início limpa falas e avisos anteriores", () => {
     const state = run(
       { type: "server", message: started },
       { type: "server", message: event(1, { type: "transcript.partial", text: "old" }) },
+      { type: "notice", message: "aviso" },
       { type: "starting" },
     );
     expect(state.captions).toEqual([]);
@@ -2067,8 +1798,6 @@ describe("falas", () => {
   });
 });
 ```
-
-(importar `MAX_CAPTIONS` de `./session-store`.)
 
 Criar `apps/extension/src/sidepanel/caption-view.test.ts`:
 
@@ -2084,7 +1813,7 @@ const caption = (overrides: Partial<Caption>): Caption => ({
   partial: "",
   ended: false,
   interrupted: false,
-  translations: {},
+  sentences: {},
   ...overrides,
 });
 
@@ -2098,18 +1827,24 @@ describe("captionView", () => {
   });
 
   it("junta as traduções na ordem das frases", () => {
-    const view = captionView(caption({ segments: ["Hi. Bye."], translations: { 1: "Tchau.", 0: "Oi." } }));
+    const view = captionView(
+      caption({
+        segments: ["Hi. Bye."],
+        sentences: { 1: { source: "Bye.", translation: "Tchau.", failed: false }, 0: { source: "Hi.", translation: "Oi.", failed: false } },
+      }),
+    );
     expect(view.portuguese).toBe("Oi. Tchau.");
     expect(view.translating).toBe(false);
   });
 
-  it("indica tradução em andamento enquanto nenhuma frase chegou", () => {
-    expect(captionView(caption({ segments: ["Hello."] })).translating).toBe(true);
-    expect(captionView(caption({ partial: "hel" })).translating).toBe(false);
+  it("indica tradução em andamento enquanto uma frase pronta não foi traduzida", () => {
+    const view = captionView(caption({ segments: ["Hi. Bye."], sentences: { 0: { source: "Hi.", translation: "Oi.", failed: false }, 1: { source: "Bye.", translation: null, failed: false } } }));
+    expect(view).toMatchObject({ portuguese: "Oi.", translating: true });
+    expect(captionView(caption({ segments: ["Hello"] })).translating).toBe(false);
   });
 
   it("marca falha de tradução", () => {
-    const view = captionView(caption({ segments: ["Hi."], translations: { 0: null } }));
+    const view = captionView(caption({ segments: ["Hi."], sentences: { 0: { source: "Hi.", translation: null, failed: true } } }));
     expect(view).toMatchObject({ translationFailed: true, translating: false, portuguese: "" });
   });
 
@@ -2137,6 +1872,13 @@ Em `apps/extension/src/offscreen/session-store.ts`:
 ```ts
 export const MAX_CAPTIONS = 200;
 
+export interface CaptionSentence {
+  source: string;
+  /** null enquanto não traduzida (ou quando a tradução falhou). */
+  translation: string | null;
+  failed: boolean;
+}
+
 export interface Caption {
   utteranceId: string;
   channel: Channel;
@@ -2144,12 +1886,20 @@ export interface Caption {
   partial: string;
   ended: boolean;
   interrupted: boolean;
-  /** Por sentenceIdx; null = a tradução daquela frase falhou. */
-  translations: Record<number, string | null>;
+  /** Por sentenceIdx. */
+  sentences: Record<number, CaptionSentence>;
 }
 ```
 
-- em `SessionState`, acrescentar `captions: Caption[];` e `notice: string | null;` e em `initialState()` `captions: [], notice: null`;
+- em `SessionState`, acrescentar `captions: Caption[];` e `notice: string | null;`, e em `initialState()` `captions: [], notice: null`;
+- em `StoreAction`, acrescentar:
+
+```ts
+  | { type: "sentence-translated"; utteranceId: string; sentenceIdx: number; text: string }
+  | { type: "sentence-translation-failed"; utteranceId: string; sentenceIdx: number }
+  | { type: "notice"; message: string }
+```
+
 - acrescentar as funções:
 
 ```ts
@@ -2158,7 +1908,7 @@ function withCaption(state: SessionState, channel: Channel, utteranceId: string,
   const current: Caption =
     index >= 0
       ? (state.captions[index] as Caption)
-      : { utteranceId, channel, segments: [], partial: "", ended: false, interrupted: false, translations: {} };
+      : { utteranceId, channel, segments: [], partial: "", ended: false, interrupted: false, sentences: {} };
   const captions = [...state.captions];
   if (index >= 0) captions[index] = update(current);
   else captions.push(update(current));
@@ -2171,6 +1921,13 @@ function endCaption(state: SessionState, utteranceId: string, interrupted: boole
   // Fala que terminou sem nenhum trecho estável não aparece na legenda.
   if (caption.segments.length === 0) return { ...state, captions: state.captions.filter((c) => c !== caption) };
   return withCaption(state, caption.channel, utteranceId, (c) => ({ ...c, ended: true, interrupted, partial: "" }));
+}
+
+function updateSentence(state: SessionState, utteranceId: string, sentenceIdx: number, patch: Partial<CaptionSentence>): SessionState {
+  const caption = state.captions.find((c) => c.utteranceId === utteranceId);
+  const sentence = caption?.sentences[sentenceIdx];
+  if (!caption || !sentence) return state; // a fala já saiu da legenda
+  return withCaption(state, caption.channel, utteranceId, (c) => ({ ...c, sentences: { ...c.sentences, [sentenceIdx]: { ...sentence, ...patch } } }));
 }
 ```
 
@@ -2188,15 +1945,10 @@ function endCaption(state: SessionState, utteranceId: string, interrupted: boole
       });
     case "utterance.end":
       return endCaption(next, message.utteranceId, message.interrupted);
-    case "translation":
+    case "sentence.ready":
       return withCaption(next, message.channel, message.utteranceId, (c) => ({
         ...c,
-        translations: { ...c.translations, [message.sentenceIdx]: message.text },
-      }));
-    case "translation.error":
-      return withCaption(next, message.channel, message.utteranceId, (c) => ({
-        ...c,
-        translations: { ...c.translations, [message.sentenceIdx]: null },
+        sentences: { ...c.sentences, [message.sentenceIdx]: { source: message.text, translation: null, failed: false } },
       }));
     case "audio.gap":
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
@@ -2205,10 +1957,21 @@ function endCaption(state: SessionState, utteranceId: string, interrupted: boole
   }
 ```
 
+- no `reduce`, acrescentar os casos:
+
+```ts
+    case "sentence-translated":
+      return updateSentence(state, action.utteranceId, action.sentenceIdx, { translation: action.text, failed: false });
+    case "sentence-translation-failed":
+      return updateSentence(state, action.utteranceId, action.sentenceIdx, { failed: true });
+    case "notice":
+      return { ...state, notice: action.message };
+```
+
 Criar `apps/extension/src/sidepanel/caption-view.ts`:
 
 ```ts
-import type { Caption } from "../offscreen/session-store";
+import type { Caption, CaptionSentence } from "../offscreen/session-store";
 
 export interface CaptionView {
   speaker: string;
@@ -2221,19 +1984,21 @@ export interface CaptionView {
 }
 
 export function captionView(caption: Caption): CaptionView {
-  const english = caption.segments.filter(Boolean).join(" ");
-  const indexes = Object.keys(caption.translations)
+  const sentences = Object.keys(caption.sentences)
     .map(Number)
-    .sort((a, b) => a - b);
-  const translated = indexes.map((i) => caption.translations[i]).filter((t): t is string => typeof t === "string");
-  const translationFailed = indexes.some((i) => caption.translations[i] === null);
+    .sort((a, b) => a - b)
+    .map((idx) => caption.sentences[idx])
+    .filter((s): s is CaptionSentence => s !== undefined);
   return {
     speaker: caption.channel === "them" ? "Participantes" : "Você",
-    english,
+    english: caption.segments.filter(Boolean).join(" "),
     partial: caption.partial,
-    portuguese: translated.join(" "),
-    translating: caption.channel === "them" && english !== "" && indexes.length === 0,
-    translationFailed,
+    portuguese: sentences
+      .map((s) => s.translation)
+      .filter((t): t is string => typeof t === "string")
+      .join(" "),
+    translating: caption.channel === "them" && sentences.some((s) => s.translation === null && !s.failed),
+    translationFailed: sentences.some((s) => s.failed),
     interrupted: caption.interrupted,
   };
 }
@@ -2242,18 +2007,373 @@ export function captionView(caption: Caption): CaptionView {
 - [ ] **Step 4: Rodar os testes e o typecheck**
 
 Run: `pnpm test apps/extension && pnpm --filter @snowspeak/extension typecheck`
-Expected: testes PASS. O typecheck acusa apenas `sidepanel/main.ts` ainda lendo `view.lastPartial` — isso é corrigido na Task 8; qualquer outro erro deve ser corrigido aqui.
+Expected: testes PASS. O typecheck acusa apenas `sidepanel/main.ts` ainda lendo `view.lastPartial` — corrigido na Task 8; qualquer outro erro deve ser corrigido aqui.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add apps/extension/src/offscreen/session-store.ts apps/extension/src/offscreen/session-store.test.ts apps/extension/src/sidepanel/caption-view.ts apps/extension/src/sidepanel/caption-view.test.ts
-git commit -m "feat(extension): falas com segmentos e traduções no estado da sessão"
+git commit -m "feat(extension): falas, frases e traduções no estado da sessão"
 ```
 
 ---
 
-### Task 8: Legenda no painel
+### Task 7: Tradução no Chrome (offscreen)
+
+**Files:**
+- Create: `apps/extension/src/translation/chrome-translator.ts`, `apps/extension/src/offscreen/translation-queue.ts`
+- Test: `apps/extension/src/translation/chrome-translator.test.ts`, `apps/extension/src/offscreen/translation-queue.test.ts`
+- Modify: `apps/extension/src/offscreen/session-controller.ts`, `apps/extension/src/offscreen/session-controller.test.ts`, `apps/extension/src/offscreen/main.ts`
+
+**Interfaces:**
+- Consumes: `SessionStore`, ações da Task 6; `ServerMessage`.
+- Produces:
+  - `interface SentenceTranslator { translate(text: string): Promise<string> }`
+  - `TRANSLATION_LANGUAGES = { sourceLanguage: "en", targetLanguage: "pt" }`
+  - `createChromeTranslator(): Promise<SentenceTranslator>` (rejeita sem a API ou se o Chrome não criar o tradutor)
+  - `type TranslatorPreparation = "ready" | "unavailable"`, `prepareChromeTranslator(onProgress: (fraction: number) => void): Promise<TranslatorPreparation>` (para chamar no clique do usuário)
+  - `TRANSLATOR_UNAVAILABLE_NOTICE`, `class TranslationQueue { constructor(provide: () => Promise<SentenceTranslator>, store: SessionStore); handle(message: ServerMessage): void }`
+  - `ControllerDeps.onServerMessage?: (message: ServerMessage) => void`
+
+- [ ] **Step 1: Escrever os testes**
+
+Criar `apps/extension/src/translation/chrome-translator.test.ts`:
+
+```ts
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createChromeTranslator, prepareChromeTranslator } from "./chrome-translator";
+
+type Availability = "unavailable" | "downloadable" | "downloading" | "available";
+
+function installFakeTranslator(options: { availability?: Availability; createError?: Error; progress?: number[] } = {}) {
+  const created: Array<{ destroyed: boolean }> = [];
+  const factory = {
+    availability: vi.fn(async () => options.availability ?? "available"),
+    create: vi.fn(async (createOptions: { monitor?: (monitor: EventTarget) => void }) => {
+      if (options.createError) throw options.createError;
+      const monitor = new EventTarget();
+      createOptions.monitor?.(monitor);
+      for (const loaded of options.progress ?? []) {
+        monitor.dispatchEvent(Object.assign(new Event("downloadprogress"), { loaded }));
+      }
+      const translator = {
+        destroyed: false,
+        translate: async (text: string) => `pt:${text}`,
+        destroy() {
+          translator.destroyed = true;
+        },
+      };
+      created.push(translator);
+      return translator;
+    }),
+  };
+  (globalThis as { Translator?: unknown }).Translator = factory;
+  return { factory, created };
+}
+
+afterEach(() => {
+  delete (globalThis as { Translator?: unknown }).Translator;
+});
+
+describe("createChromeTranslator", () => {
+  it("cria o tradutor de inglês para português e traduz", async () => {
+    const { factory } = installFakeTranslator();
+    const translator = await createChromeTranslator();
+    await expect(translator.translate("Hi.")).resolves.toBe("pt:Hi.");
+    expect(factory.create).toHaveBeenCalledWith({ sourceLanguage: "en", targetLanguage: "pt" });
+  });
+
+  it("falha quando o Chrome não tem a Translator API", async () => {
+    await expect(createChromeTranslator()).rejects.toThrow();
+  });
+
+  it("falha quando o Chrome não consegue criar o tradutor", async () => {
+    installFakeTranslator({ createError: new Error("NotSupportedError") });
+    await expect(createChromeTranslator()).rejects.toThrow("NotSupportedError");
+  });
+});
+
+describe("prepareChromeTranslator", () => {
+  it("baixa o modelo, informa o progresso e libera o tradutor de teste", async () => {
+    const { created } = installFakeTranslator({ availability: "downloadable", progress: [0, 0.5, 1] });
+    const progress: number[] = [];
+    await expect(prepareChromeTranslator((fraction) => progress.push(fraction))).resolves.toBe("ready");
+    expect(progress).toEqual([0, 0.5, 1]);
+    expect(created[0]?.destroyed).toBe(true);
+  });
+
+  it("indisponível quando o par de idiomas não é suportado", async () => {
+    const { factory } = installFakeTranslator({ availability: "unavailable" });
+    await expect(prepareChromeTranslator(() => {})).resolves.toBe("unavailable");
+    expect(factory.create).not.toHaveBeenCalled();
+  });
+
+  it("indisponível quando a criação falha ou a API não existe", async () => {
+    installFakeTranslator({ createError: new Error("NotSupportedError") });
+    await expect(prepareChromeTranslator(() => {})).resolves.toBe("unavailable");
+    delete (globalThis as { Translator?: unknown }).Translator;
+    await expect(prepareChromeTranslator(() => {})).resolves.toBe("unavailable");
+  });
+});
+```
+
+Criar `apps/extension/src/offscreen/translation-queue.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from "vitest";
+import type { ServerMessage } from "@snowspeak/shared";
+import { SessionStore } from "./session-store";
+import { TRANSLATOR_UNAVAILABLE_NOTICE, TranslationQueue, type SentenceTranslator } from "./translation-queue";
+
+const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
+let seq = 0;
+const segment = (text: string): ServerMessage => ({ v: 1, sessionId: "s1", seq: ++seq, ts: 0, type: "transcript.segment", channel: "them", utteranceId: "them-1", segmentIdx: 0, text });
+const sentence = (sentenceIdx: number, text: string): ServerMessage => ({
+  v: 1,
+  sessionId: "s1",
+  seq: ++seq,
+  ts: 0,
+  type: "sentence.ready",
+  channel: "them",
+  utteranceId: "them-1",
+  sentenceIdx,
+  text,
+});
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function setup(provide: () => Promise<SentenceTranslator>) {
+  seq = 0;
+  const store = new SessionStore();
+  const queue = new TranslationQueue(provide, store);
+  // No offscreen, o controlador aplica a mensagem ao store e depois a repassa à fila.
+  const deliver = (message: ServerMessage) => {
+    store.dispatch({ type: "server", message });
+    queue.handle(message);
+  };
+  deliver(started);
+  deliver(segment("Hi. Bye."));
+  return { store, deliver, sentences: () => store.snapshot().captions[0]?.sentences };
+}
+
+const ptTranslator = (): SentenceTranslator => ({ translate: async (text) => `pt:${text}` });
+
+describe("TranslationQueue", () => {
+  it("traduz cada frase pronta e grava no store", async () => {
+    const t = setup(async () => ptTranslator());
+    t.deliver(sentence(0, "Hi."));
+    t.deliver(sentence(1, "Bye."));
+    await flush();
+    expect(t.sentences()).toEqual({
+      0: { source: "Hi.", translation: "pt:Hi.", failed: false },
+      1: { source: "Bye.", translation: "pt:Bye.", failed: false },
+    });
+  });
+
+  it("cria o tradutor uma vez por sessão", async () => {
+    const provide = vi.fn(async () => ptTranslator());
+    const t = setup(provide);
+    t.deliver(sentence(0, "Hi."));
+    t.deliver(sentence(1, "Bye."));
+    await flush();
+    expect(provide).toHaveBeenCalledTimes(1);
+    t.deliver(started);
+    t.deliver(segment("Again."));
+    t.deliver(sentence(0, "Again."));
+    await flush();
+    expect(provide).toHaveBeenCalledTimes(2);
+  });
+
+  it("sem tradutor: um aviso só e as frases ficam em inglês marcadas como falha", async () => {
+    const t = setup(() => Promise.reject(new Error("NotSupportedError")));
+    const notices: Array<string | null> = [];
+    t.store.subscribe((state) => notices.push(state.notice));
+    t.deliver(sentence(0, "Hi."));
+    t.deliver(sentence(1, "Bye."));
+    await flush();
+    expect(t.store.snapshot().notice).toBe(TRANSLATOR_UNAVAILABLE_NOTICE);
+    expect(new Set(notices.filter(Boolean))).toEqual(new Set([TRANSLATOR_UNAVAILABLE_NOTICE]));
+    expect(t.sentences()).toMatchObject({ 0: { failed: true }, 1: { failed: true } });
+  });
+
+  it("uma frase que falha não afeta as outras nem gera aviso", async () => {
+    const t = setup(async () => ({ translate: async (text) => (text === "Hi." ? Promise.reject(new Error("x")) : `pt:${text}`) }));
+    t.deliver(sentence(0, "Hi."));
+    t.deliver(sentence(1, "Bye."));
+    await flush();
+    expect(t.sentences()).toMatchObject({ 0: { failed: true }, 1: { translation: "pt:Bye." } });
+    expect(t.store.snapshot().notice).toBeNull();
+  });
+
+  it("ignora as demais mensagens do servidor", async () => {
+    const provide = vi.fn(async () => ptTranslator());
+    const t = setup(provide);
+    t.deliver(segment("Hello"));
+    await flush();
+    expect(provide).not.toHaveBeenCalled();
+  });
+});
+```
+
+Em `apps/extension/src/offscreen/session-controller.test.ts`, acrescentar dentro do `describe("SessionController")`:
+
+```ts
+  it("repassa as mensagens do servidor ao gancho, depois de aplicá-las ao store", async () => {
+    const t = setup();
+    const seen: Array<{ type: string; status: string }> = [];
+    const controller = new SessionController({ ...t.deps, onServerMessage: (m) => seen.push({ type: m.type, status: t.store.snapshot().status }) });
+    await controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.receive(started);
+    expect(seen).toEqual([{ type: "session.started", status: "running" }]);
+  });
+```
+
+- [ ] **Step 2: Rodar e confirmar a falha**
+
+Run: `pnpm test apps/extension`
+Expected: FAIL — `chrome-translator` e `translation-queue` inexistentes; o teste do gancho falha porque `onServerMessage` ainda não é chamado.
+
+- [ ] **Step 3: Implementar**
+
+Criar `apps/extension/src/translation/chrome-translator.ts`:
+
+```ts
+import type { SentenceTranslator } from "../offscreen/translation-queue";
+
+// Translator API do Chrome (estável desde o 138): tradução no próprio computador, sem chave e sem custo.
+export const TRANSLATION_LANGUAGES = { sourceLanguage: "en", targetLanguage: "pt" } as const;
+
+type Availability = "unavailable" | "downloadable" | "downloading" | "available";
+
+interface ChromeTranslator {
+  translate(input: string): Promise<string>;
+  destroy(): void;
+}
+
+interface ChromeTranslatorFactory {
+  availability(options: { sourceLanguage: string; targetLanguage: string }): Promise<Availability>;
+  create(options: { sourceLanguage: string; targetLanguage: string; monitor?: (monitor: EventTarget) => void }): Promise<ChromeTranslator>;
+}
+
+function translatorFactory(): ChromeTranslatorFactory | null {
+  return (globalThis as { Translator?: ChromeTranslatorFactory }).Translator ?? null;
+}
+
+/** No offscreen: usa o modelo já baixado (não exige clique do usuário). */
+export async function createChromeTranslator(): Promise<SentenceTranslator> {
+  const factory = translatorFactory();
+  if (!factory) throw new Error("Translator API indisponível neste navegador");
+  const translator = await factory.create({ ...TRANSLATION_LANGUAGES });
+  return { translate: (text) => translator.translate(text) };
+}
+
+export type TranslatorPreparation = "ready" | "unavailable";
+
+/** No painel, dentro do clique de Iniciar: baixa o modelo na primeira vez (exige gesto do usuário). */
+export async function prepareChromeTranslator(onProgress: (fraction: number) => void): Promise<TranslatorPreparation> {
+  const factory = translatorFactory();
+  if (!factory) return "unavailable";
+  try {
+    if ((await factory.availability({ ...TRANSLATION_LANGUAGES })) === "unavailable") return "unavailable";
+    const translator = await factory.create({
+      ...TRANSLATION_LANGUAGES,
+      monitor(monitor) {
+        monitor.addEventListener("downloadprogress", (event) => onProgress((event as Event & { loaded: number }).loaded));
+      },
+    });
+    translator.destroy();
+    return "ready";
+  } catch {
+    return "unavailable";
+  }
+}
+```
+
+Criar `apps/extension/src/offscreen/translation-queue.ts`:
+
+```ts
+import type { ServerMessage } from "@snowspeak/shared";
+import type { SessionStore } from "./session-store";
+
+export interface SentenceTranslator {
+  translate(text: string): Promise<string>;
+}
+
+export const TRANSLATOR_UNAVAILABLE_NOTICE = "Tradução indisponível neste Chrome. As falas continuam em inglês.";
+
+// Traduz cada frase que o servidor marca como pronta e grava o resultado no store.
+export class TranslationQueue {
+  private translator: Promise<SentenceTranslator> | null = null;
+
+  constructor(
+    private readonly provide: () => Promise<SentenceTranslator>,
+    private readonly store: SessionStore,
+  ) {}
+
+  handle(message: ServerMessage): void {
+    if (message.type === "session.started") {
+      this.translator = null; // cada sessão tenta criar o tradutor de novo
+      return;
+    }
+    if (message.type !== "sentence.ready") return;
+
+    const { utteranceId, sentenceIdx, text } = message;
+    this.translator ??= this.provide().catch((error: unknown) => {
+      this.store.dispatch({ type: "notice", message: TRANSLATOR_UNAVAILABLE_NOTICE });
+      throw error;
+    });
+    this.translator
+      .then((translator) => translator.translate(text))
+      .then(
+        (translation) => this.store.dispatch({ type: "sentence-translated", utteranceId, sentenceIdx, text: translation }),
+        () => this.store.dispatch({ type: "sentence-translation-failed", utteranceId, sentenceIdx }),
+      );
+  }
+}
+```
+
+Em `apps/extension/src/offscreen/session-controller.ts`:
+- em `ControllerDeps`, acrescentar:
+
+```ts
+  /** Recebe cada mensagem do servidor depois que ela foi aplicada ao store (ex.: fila de tradução). */
+  onServerMessage?: (message: ServerMessage) => void;
+```
+
+- no fim de `onServerMessage`, depois de `this.deps.store.dispatch({ type: "server", message });`, acrescentar `this.deps.onServerMessage?.(message);`.
+
+Em `apps/extension/src/offscreen/main.ts`, criar a fila e passá-la ao controlador:
+
+```ts
+import { createChromeTranslator } from "../translation/chrome-translator";
+import { TranslationQueue } from "./translation-queue";
+
+const store = new SessionStore();
+const translations = new TranslationQueue(createChromeTranslator, store);
+const controller = new SessionController({
+  store,
+  captureTab,
+  captureMic,
+  openSocket: openBrowserSocket,
+  onServerMessage: (message) => translations.handle(message),
+});
+```
+
+- [ ] **Step 4: Rodar os testes**
+
+Run: `pnpm test apps/extension`
+Expected: PASS em todos os testes da extensão.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/extension/src/translation apps/extension/src/offscreen
+git commit -m "feat(extension): tradução das frases no offscreen com o tradutor embutido do Chrome"
+```
+
+---
+
+### Task 8: Legenda no painel e preparo do tradutor
 
 **Files:**
 - Create: `apps/extension/src/offscreen/coalesce.ts`
@@ -2261,7 +2381,7 @@ git commit -m "feat(extension): falas com segmentos e traduções no estado da s
 - Modify: `apps/extension/src/offscreen/main.ts`, `apps/extension/sidepanel.html`, `apps/extension/src/sidepanel/main.ts`, `apps/extension/src/sidepanel/sidepanel.css`
 
 **Interfaces:**
-- Consumes: `SessionState`, `Caption` (Task 7), `captionView` (Task 7).
+- Consumes: `SessionState`, `Caption` (Task 6), `captionView` (Task 6), `prepareChromeTranslator` (Task 7), `TRANSLATOR_UNAVAILABLE_NOTICE` (Task 7).
 - Produces: `BROADCAST_INTERVAL_MS = 50`, `createCoalescer(flush: () => void, delayMs: number): () => void`.
 
 - [ ] **Step 1: Escrever o teste do agrupador**
@@ -2304,7 +2424,7 @@ describe("createCoalescer", () => {
 Run: `pnpm test apps/extension/src/offscreen/coalesce.test.ts`
 Expected: FAIL — módulo inexistente.
 
-- [ ] **Step 3: Implementar agrupador e painel**
+- [ ] **Step 3: Implementar agrupador, legenda e preparo do tradutor**
 
 Criar `apps/extension/src/offscreen/coalesce.ts`:
 
@@ -2378,6 +2498,7 @@ Substituir `apps/extension/sidepanel.html`:
       O microfone ainda não foi liberado. <button id="grant-mic">Liberar microfone</button>
     </p>
     <p id="local-error" class="error" hidden></p>
+    <p id="local-notice" class="warning" hidden></p>
     <p id="error" class="error" hidden></p>
     <p id="notice" class="warning" hidden></p>
     <p id="mic-denied" class="warning" hidden>Sugestões sem suas falas: microfone indisponível.</p>
@@ -2488,11 +2609,16 @@ p { margin: 0; }
 ```
 
 Em `apps/extension/src/sidepanel/main.ts`:
-- importar `type Caption` junto de `SessionState` e `import { captionView } from "./caption-view";`;
-- acrescentar as referências `const noticeLabel = byId<HTMLParagraphElement>("notice");`, `const settingsPanel = byId<HTMLDetailsElement>("settings");` e `const captionsList = byId<HTMLOListElement>("captions");`;
-- acrescentar o renderizador de falas:
+- imports novos: `type Caption` (junto de `SessionState`), `import { captionView } from "./caption-view";`, `import { prepareChromeTranslator } from "../translation/chrome-translator";`, `import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";`;
+- referências novas: `const noticeLabel = byId<HTMLParagraphElement>("notice");`, `const localNoticeLabel = byId<HTMLParagraphElement>("local-notice");`, `const settingsPanel = byId<HTMLDetailsElement>("settings");`, `const captionsList = byId<HTMLOListElement>("captions");`;
+- acrescentar:
 
 ```ts
+function showLocalNotice(message: string | null): void {
+  localNoticeLabel.hidden = !message;
+  localNoticeLabel.textContent = message ?? "";
+}
+
 const captionItems = new Map<string, HTMLLIElement>();
 
 function createCaptionItem(caption: Caption): HTMLLIElement {
@@ -2510,9 +2636,9 @@ function fillCaptionItem(item: HTMLLIElement, caption: Caption): void {
   (item.querySelector(".final") as HTMLElement).textContent = view.english;
   (item.querySelector(".partial") as HTMLElement).textContent = view.partial;
   const portuguese = item.querySelector(".portuguese") as HTMLElement;
-  portuguese.hidden = caption.channel === "me";
-  portuguese.classList.toggle("pending", view.translating);
-  portuguese.classList.toggle("failed", view.translationFailed && !view.portuguese);
+  portuguese.hidden = caption.channel === "me" || (!view.portuguese && !view.translating && !view.translationFailed);
+  portuguese.classList.toggle("pending", !view.portuguese && view.translating);
+  portuguese.classList.toggle("failed", !view.portuguese && view.translationFailed);
   portuguese.textContent = view.portuguese || (view.translating ? "traduzindo…" : view.translationFailed ? "tradução indisponível" : "");
   (item.querySelector(".interrupted") as HTMLElement).hidden = !view.interrupted;
 }
@@ -2540,7 +2666,7 @@ function renderCaptions(captions: Caption[]): void {
 }
 ```
 
-- em `render()`, no laço dos canais, substituir as três linhas que preenchem `.bar`, `.stats` e `.partial` por:
+- em `render()`, no laço dos canais, substituir as linhas que preenchem `.bar`, `.stats` e `.partial` por:
 
 ```ts
     (section.querySelector(".bar") as HTMLElement).style.width = `${Math.min(100, view.level * 300)}%`;
@@ -2566,6 +2692,17 @@ function applyState(state: SessionState): void {
 }
 ```
 
+- no handler de Iniciar, logo depois de `pendingStart = true; render();` e **antes** de qualquer outro `await` (o download do modelo precisa do gesto do usuário), preparar o tradutor:
+
+```ts
+  const preparation = await prepareChromeTranslator((fraction) =>
+    showLocalNotice(`Baixando o tradutor do Chrome… ${Math.round(fraction * 100)}%`),
+  );
+  showLocalNotice(preparation === "unavailable" ? TRANSLATOR_UNAVAILABLE_NOTICE : null);
+```
+
+(o `try` existente passa a começar logo depois disso, com `await chrome.storage.local.set(settings);`).
+
 - [ ] **Step 4: Testes, typecheck e build**
 
 Run: `pnpm test && pnpm -r typecheck && pnpm --filter @snowspeak/extension build`
@@ -2575,12 +2712,12 @@ Expected: todos os testes PASS, typecheck sem erros, build conclui.
 
 ```bash
 git add apps/extension
-git commit -m "feat(extension): legenda com inglês e tradução no painel"
+git commit -m "feat(extension): legenda com inglês e tradução no painel e preparo do tradutor do Chrome"
 ```
 
 ---
 
-### Task 9: Chaves, roteiro e validação com os provedores reais
+### Task 9: Chave do Deepgram, roteiro e validação
 
 **Files:**
 - Modify: `README.md`
@@ -2590,26 +2727,26 @@ git commit -m "feat(extension): legenda com inglês e tradução no painel"
 Na seção "Desenvolvimento", depois do passo 3, acrescentar:
 
 ```markdown
-   Para transcrição e tradução reais, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com) e `GOOGLE_TRANSLATE_API_KEY` (Google Cloud Console: ative a "Cloud Translation API" e crie uma chave de API restrita a ela). Sem elas, o servidor usa versões falsas e avisa no log.
+   Para transcrição real, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com → API Keys; a conta nova vem com crédito). Sem ela, o servidor usa o STT falso e avisa no log. A tradução não precisa de chave: roda no próprio Chrome (Translator API, Chrome 138+).
 ```
 
-Substituir o título "O que o painel mostra no marco 1" e seu conteúdo por uma seção "O que o painel mostra" explicando: sem chaves, a sonda de sinal do marco 1; com chaves, a legenda (inglês com parcial em cinza, português em verde abaixo das falas dos participantes, falas do usuário em roxo sem tradução). Manter a menção a `/tone` como teste de áudio sem provedores.
+Substituir o título "O que o painel mostra no marco 1" e seu conteúdo por uma seção "O que o painel mostra" explicando: sem chave, a sonda de sinal do marco 1; com chave, a legenda (inglês com parcial em cinza, português em verde abaixo das falas dos participantes, falas do usuário em roxo sem tradução). Manter a menção a `/tone` como teste de áudio sem provedores.
 
 Acrescentar ao fim:
 
 ```markdown
-## Marcos 3 e 4 — roteiro de validação (com chaves reais)
+## Marcos 3 e 4 — roteiro de validação (com a chave do Deepgram)
 
-- [ ] O log do servidor mostra `STT: Deepgram · tradução: Google Translation`.
+- [ ] O log do servidor mostra `STT: Deepgram · tradução: no Chrome do usuário`.
+- [ ] Na primeira vez, Iniciar mostra "Baixando o tradutor do Chrome… X%" (só se o modelo ainda não estiver instalado).
 - [ ] Numa aba com um vídeo em inglês (entrevista, podcast), o inglês aparece enquanto a pessoa fala, primeiro em cinza (parcial) e depois firme.
-- [ ] O português aparece abaixo de cada frase logo depois que ela termina.
+- [ ] O português aparece abaixo de cada frase praticamente junto com o fim da frase.
 - [ ] Fala longa sem pausa: a tradução aparece aos poucos (a cada frase ou a cada ~2,5 s), sem esperar o fim.
 - [ ] Falando no microfone (inglês ou português), a fala aparece como "Você", sem tradução.
 - [ ] Clicar em Parar no meio de uma frase: as últimas palavras aparecem e são traduzidas antes de o status virar "Parado".
 - [ ] Fechar e reabrir o painel mantém a legenda.
-- [ ] Chave do Google errada (troque no `.env` e reinicie o servidor): o inglês continua e aparece "tradução indisponível".
-- [ ] Chave do Deepgram errada: aparece o aviso "A transcrição parou…" e a sessão segue capturando.
-- [ ] Ao parar, o log do servidor mostra a latência (`STT (segmento final) p50 … · tradução p50 …`). Meta: tradução p50 < 800 ms.
+- [ ] Chave do Deepgram errada (troque no `.env` e reinicie o servidor): aparece "A transcrição parou…" e a sessão segue capturando.
+- [ ] Ao parar, o log do servidor mostra a latência do STT (`STT (segmento final) p50 …`).
 - [ ] Repetir numa chamada real do Google Meet.
 ```
 
@@ -2617,9 +2754,9 @@ Acrescentar ao fim:
 
 ```bash
 git add README.md
-git commit -m "docs: chaves dos provedores e roteiro dos marcos 3 e 4"
+git commit -m "docs: chave do Deepgram e roteiro dos marcos 3 e 4"
 ```
 
 - [ ] **Step 3: Validação manual com o usuário**
 
-Com as chaves preenchidas pelo usuário em `apps/server/.env`, rodar `pnpm --filter @snowspeak/extension build`, recarregar a extensão, iniciar o servidor e percorrer o roteiro com o usuário, marcando `[x]` no README os itens que passarem e registrando as latências do log.
+Com a chave do Deepgram preenchida pelo usuário em `apps/server/.env`, rodar `pnpm --filter @snowspeak/extension build`, recarregar a extensão, iniciar o servidor e percorrer o roteiro com o usuário, marcando `[x]` no README os itens que passarem e registrando a latência do log.
