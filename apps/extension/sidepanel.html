@@ -25,6 +25,9 @@
         </select>
       </label>
       <label>Contexto <textarea id="context" rows="3"></textarea></label>
+      <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
+      <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
+      <p class="hint">Currículo e vaga vão ao servidor e ao provedor de IA só para gerar sugestões; não são guardados.</p>
     </details>
 
     <div class="actions">
@@ -65,6 +68,16 @@
     </div>
 
     <ol id="captions" class="captions" aria-live="polite"></ol>
+
+    <section class="suggestion-area">
+      <div id="suggestion" class="suggestion" hidden>
+        <div class="suggestion-label"><span id="suggestion-label"></span> <span id="suggestion-pending" class="pending-dot" hidden>gerando…</span></div>
+        <p id="suggestion-en" class="suggestion-en"></p>
+        <p id="suggestion-pt" class="suggestion-pt"></p>
+        <p id="suggestion-error" class="warning" hidden></p>
+      </div>
+      <button id="suggest" class="suggest-button">Sugerir resposta (Alt+S)</button>
+    </section>
 
     <script type="module" src="/src/sidepanel/main.ts"></script>
   </body>

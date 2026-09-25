@@ -105,3 +105,13 @@ body.capturing .dots { display: inline-flex; }
 .caption-me { margin-left: 15%; background: transparent; border: 1px solid var(--border); border-left: 3px solid var(--me); }
 .caption-me .english { font-size: 13px; }
 .caption-me.current .english { font-size: 14px; }
+
+/* Sugestão de resposta: fixa no rodapé do painel. */
+.suggestion-area { display: none; flex: none; gap: 6px; flex-direction: column; }
+body.capturing .suggestion-area { display: flex; }
+.suggestion { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--accent); background: #13202e; }
+.suggestion-label { font-size: 11px; color: var(--muted); }
+.pending-dot { color: var(--accent); font-style: italic; }
+.suggestion-en { font-size: 17px; line-height: 1.35; margin-top: 4px; }
+.suggestion-pt { font-size: 14px; color: var(--translation); margin-top: 4px; }
+.suggest-button { align-self: stretch; }

@@ -1,13 +1,14 @@
-import { MAX_CONTEXT_CHARS, MODES, type Mode } from "@snowspeak/shared";
+import { MAX_CONTEXT_CHARS, MAX_JOB_CHARS, MAX_PROFILE_CHARS, MODES, type Mode } from "@snowspeak/shared";
 import type { PanelStartParams, RuntimeMessage, StartResponse } from "../messaging";
 import { initialState, type Caption, type SessionState, type SessionStatus } from "../offscreen/session-store";
 import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";
 import { prepareChromeTranslator } from "../translation/chrome-translator";
 import { captionView } from "./caption-view";
 import { captionEmphasis, captionLines, isCaptureMode, type CaptionEmphasis } from "./panel-view";
+import { suggestionCard } from "./suggestion-view";
 import { waitForTranslator } from "./translator-wait";
 
-const DEFAULT_SETTINGS: PanelStartParams = { serverUrl: "ws://localhost:8787/ws", token: "", mode: "work", context: "" };
+const DEFAULT_SETTINGS: PanelStartParams = { serverUrl: "ws://localhost:8787/ws", token: "", mode: "work", context: "", profile: "", job: "" };
 const DEFAULT_PREFERENCES = { portugueseOnly: false, widthHintDismissed: false };
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
@@ -25,6 +26,15 @@ const serverUrlInput = byId<HTMLInputElement>("serverUrl");
 const tokenInput = byId<HTMLInputElement>("token");
 const modeSelect = byId<HTMLSelectElement>("mode");
 const contextInput = byId<HTMLTextAreaElement>("context");
+const profileInput = byId<HTMLTextAreaElement>("profile");
+const jobInput = byId<HTMLTextAreaElement>("job");
+const suggestButton = byId<HTMLButtonElement>("suggest");
+const suggestionBox = byId<HTMLDivElement>("suggestion");
+const suggestionLabel = byId<HTMLSpanElement>("suggestion-label");
+const suggestionPending = byId<HTMLSpanElement>("suggestion-pending");
+const suggestionEn = byId<HTMLParagraphElement>("suggestion-en");
+const suggestionPt = byId<HTMLParagraphElement>("suggestion-pt");
+const suggestionError = byId<HTMLParagraphElement>("suggestion-error");
 const startButton = byId<HTMLButtonElement>("start");
 const stopButton = byId<HTMLButtonElement>("stop");
 const skipTranslatorButton = byId<HTMLButtonElement>("skip-translator");
@@ -43,6 +53,8 @@ const widthHint = byId<HTMLParagraphElement>("width-hint");
 const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
 
 contextInput.maxLength = MAX_CONTEXT_CHARS;
+profileInput.maxLength = MAX_PROFILE_CHARS;
+jobInput.maxLength = MAX_JOB_CHARS;
 
 let lastState: SessionState = initialState();
 // Início pedido e ainda não entregue ao offscreen (preparo do tradutor + service worker).
@@ -130,6 +142,19 @@ function render(): void {
       `${view.sentFrames} frames · ${view.droppedFrames} descartados · ${(view.lostMs / 1000).toFixed(1)} s perdidos`;
   }
   renderCaptions(state.captions);
+  renderSuggestion(state);
+}
+
+function renderSuggestion(state: SessionState): void {
+  const card = suggestionCard(state.suggestion);
+  suggestionBox.hidden = !card.visible;
+  suggestionLabel.textContent = card.label;
+  suggestionPending.hidden = !card.pending;
+  suggestionEn.textContent = card.en;
+  suggestionPt.textContent = card.pt;
+  suggestionError.hidden = !card.error;
+  suggestionError.textContent = card.error ?? "";
+  suggestButton.disabled = state.status !== "running";
 }
 
 function applyState(state: SessionState): void {
@@ -160,7 +185,14 @@ function isWebSocketUrl(value: string): boolean {
 
 function readForm(): PanelStartParams {
   const mode = MODES.includes(modeSelect.value as Mode) ? (modeSelect.value as Mode) : "work";
-  return { serverUrl: serverUrlInput.value.trim(), token: tokenInput.value.trim(), mode, context: contextInput.value };
+  return {
+    serverUrl: serverUrlInput.value.trim(),
+    token: tokenInput.value.trim(),
+    mode,
+    context: contextInput.value,
+    profile: profileInput.value,
+    job: jobInput.value,
+  };
 }
 
 async function loadSettings(): Promise<void> {
@@ -169,6 +201,8 @@ async function loadSettings(): Promise<void> {
   tokenInput.value = settings.token;
   modeSelect.value = settings.mode;
   contextInput.value = settings.context;
+  profileInput.value = settings.profile;
+  jobInput.value = settings.job;
 }
 
 async function loadPreferences(): Promise<void> {
@@ -266,6 +300,20 @@ stopButton.addEventListener("click", () => {
   }
   chrome.runtime.sendMessage({ target: "background", type: "stop" } satisfies RuntimeMessage).catch(() => undefined);
 });
+
+suggestButton.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ target: "offscreen", type: "suggest" } satisfies RuntimeMessage).catch(() => undefined);
+});
+
+// Mudanças durante a sessão valem para as próximas sugestões.
+function onSettingsChanged(): void {
+  const settings = readForm();
+  void chrome.storage.local.set(settings);
+  if (lastState.status !== "running") return;
+  const changes = { mode: settings.mode, context: settings.context, profile: settings.profile, job: settings.job };
+  chrome.runtime.sendMessage({ target: "offscreen", type: "update", changes } satisfies RuntimeMessage).catch(() => undefined);
+}
+for (const field of [modeSelect, contextInput, profileInput, jobInput]) field.addEventListener("change", onSettingsChanged);
 
 portugueseOnlyButton.addEventListener("click", () => {
   portugueseOnly = !portugueseOnly;
