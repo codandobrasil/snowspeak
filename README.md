@@ -48,7 +48,7 @@ Marque cada item ao validar no Chrome:
 - [x] Clicar no ícone abre o painel lateral.
 - [x] "Liberar microfone" abre a aba de permissão; depois de aceitar, o aviso some do painel.
 - [x] Abrir `http://localhost:8787/tone`, clicar em **Tocar**, clicar no ícone do SnowSpeak nessa aba e em **Iniciar**: o status muda para "Capturando" e a barra "Participantes" se move.
-- [ ] O tom continua audível durante a captura.
+- [x] O tom continua audível durante a captura.
 - [x] O canal Participantes mostra **≈ -9 dBFS · ~440 Hz**, com a duração crescendo 1 s por segundo.
 - [x] Parar o tom na página: o canal passa a mostrar `silêncio`.
 - [x] Falar no microfone move a barra "Você" e mostra nível e frequência no canal Você.
@@ -61,10 +61,10 @@ Marque cada item ao validar no Chrome:
 - [x] Chave errada: mensagem "Chave de acesso inválida." e nada fica capturando.
 - [x] Servidor desligado: "Não foi possível conectar ao servidor." e nada fica capturando.
 - [x] Servidor cai no meio da sessão: "Conexão com o servidor encerrada (código 1006)." e a captura é liberada (reconexão fica para o marco 2).
-- [ ] Endereço inválido no campo Servidor (ex.: `http://x`): mensagem de endereço inválido, sem iniciar a captura.
-- [ ] Microfone bloqueado (configurações do site da extensão → bloquear microfone): a sessão inicia e aparece "Sugestões sem suas falas".
+- [x] Endereço inválido no campo Servidor (ex.: `http://x`): mensagem de endereço inválido, sem iniciar a captura.
+- [x] Microfone bloqueado (configurações do site da extensão → bloquear microfone): a sessão inicia e aparece "Sugestões sem suas falas".
 - [x] Clique duplo rápido em Iniciar: uma única captura (os contadores não duplicam).
-- [ ] Com alto-falantes (sem fone), tocando o tom: anotar se o canal Você mostra ~440 Hz (eco da aba no microfone). Isso é informação para o marco 3.
-- [ ] Repetir o fluxo numa chamada real do Google Meet.
+- [x] Com alto-falantes (sem fone), tocando o tom: anotar se o canal Você mostra ~440 Hz (eco da aba no microfone). Isso é informação para o marco 3. Resultado: sem eco.
+- [x] Repetir o fluxo numa chamada real do Google Meet.
 
 Se aparecer "Extension has not been invoked for the current page" ao iniciar, anote: é o caso previsto na contingência R7 do plano (o clique no ícone passa a iniciar a sessão diretamente).
