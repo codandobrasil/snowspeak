@@ -63,7 +63,7 @@ apps/server/src/
 apps/extension/src/
   offscreen/session-store.ts (+test)       captions (falas e frases) no estado
   sidepanel/caption-view.ts (+test)        texto exibido de cada fala (puro)
-  offscreen/chrome-translator.ts (+test)   adaptador da Translator API do Chrome
+  translation/chrome-translator.ts (+test) adaptador da Translator API do Chrome (offscreen e painel)
   offscreen/translation-queue.ts (+test)   traduz cada sentence.ready e grava no store
   offscreen/session-controller.ts (+test)  gancho onServerMessage
   offscreen/coalesce.ts (+test)            agrupa broadcasts do estado (50 ms)
