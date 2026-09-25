@@ -5,10 +5,12 @@ import { CLOSE_CODES, decodeFrame, parseClientMessage, type ServerMessage } from
 import type { ServerConfig } from "./config";
 import { Session } from "./session";
 import type { SttFactory } from "./stt/types";
+import type { Suggester } from "./suggest/openrouter";
 import { TONE_PAGE_HTML } from "./tone-page";
 
 export interface GatewayDeps {
   sttFactory: SttFactory;
+  suggester: Suggester;
 }
 
 export interface Gateway {
@@ -90,7 +92,10 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
         return;
       }
       clearTimeout(authTimer);
-      session = new Session({ sttFactory: deps.sttFactory, send }, message.mode, message.context);
+      session = new Session(
+        { sttFactory: deps.sttFactory, suggester: deps.suggester, send },
+        { mode: message.mode, context: message.context, profile: message.profile ?? "", job: message.job ?? "" },
+      );
       send({ v: 1, type: "session.started", sessionId: session.id, resumeToken: session.resumeToken });
       return;
     }
@@ -102,10 +107,21 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
       const current = session;
       // Entrega as últimas palavras e frases antes de encerrar.
       void current.drain().finally(() => {
-        send({ v: 1, type: "session.ended", sessionId: current.id, reason: "stopped" });
+        // close() cancela a sugestão em andamento e avisa antes do session.ended.
         current.close();
+        send({ v: 1, type: "session.ended", sessionId: current.id, reason: "stopped" });
         ws.close(CLOSE_CODES.sessionEnded, "stopped");
       });
+      return;
+    }
+
+    if (message?.type === "session.update") {
+      session.update(message);
+      return;
+    }
+
+    if (message?.type === "suggest.request") {
+      session.requestSuggestion(message.requestId);
       return;
     }
 

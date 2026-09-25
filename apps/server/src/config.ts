@@ -1,3 +1,5 @@
+export const DEFAULT_SUGGESTION_MODEL = "anthropic/claude-haiku-4.5";
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -5,6 +7,8 @@ export interface ServerConfig {
   allowedOrigins: Set<string>;
   authTimeoutMs: number;
   deepgramApiKey: string | null;
+  openRouterApiKey: string | null;
+  suggestionModel: string;
 }
 
 function parseList(value: string | undefined): Set<string> {
@@ -29,5 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     allowedOrigins,
     authTimeoutMs: 5_000,
     deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() || null,
+    openRouterApiKey: env.OPENROUTER_API_KEY?.trim() || null,
+    suggestionModel: env.SUGGESTION_MODEL?.trim() || DEFAULT_SUGGESTION_MODEL,
   };
 }

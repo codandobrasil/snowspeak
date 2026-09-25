@@ -29,6 +29,8 @@ interface Generation {
   controller: AbortController;
   /** Motivo do cancelamento, quando cancelada por nós. */
   reason: "cancelled" | "timeout" | null;
+  /** O erro já foi emitido (fim da sessão avisa na hora, antes de session.ended). */
+  reported: boolean;
 }
 
 export class SuggestionEngine {
@@ -72,7 +74,12 @@ export class SuggestionEngine {
 
   close(): void {
     this.closed = true;
-    this.cancel("cancelled");
+    const generation = this.inflight;
+    if (!generation) return;
+    generation.reason = "cancelled";
+    generation.reported = true;
+    this.deps.emit({ type: "suggestion.error", requestId: generation.requestId, code: "cancelled" });
+    generation.controller.abort(new Error("cancelled"));
   }
 
   private cancel(reason: "cancelled" | "timeout"): void {
@@ -85,7 +92,7 @@ export class SuggestionEngine {
   private start(requestId: string, trigger: SuggestionTrigger, basedOnUtteranceId: string | null): void {
     this.cancel("cancelled");
     this.seen.add(requestId);
-    const generation: Generation = { requestId, trigger, controller: new AbortController(), reason: null };
+    const generation: Generation = { requestId, trigger, controller: new AbortController(), reason: null, reported: false };
     this.inflight = generation;
     this.deps.emit({ type: "suggestion.started", requestId, trigger, basedOnUtteranceId });
 
@@ -118,7 +125,7 @@ export class SuggestionEngine {
       }
     }
     if (generation.reason) {
-      fail(generation.reason);
+      if (!generation.reported) fail(generation.reason);
       return;
     }
     const { en, pt } = parser.result();

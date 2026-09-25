@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { createFakeSuggester } from "./suggest/openrouter";
 import { startGateway, type Gateway } from "./gateway";
 import { createFakeSttFactory } from "./stt/fake-stt";
 import { sinePcm } from "./test-support/sine";
@@ -11,7 +12,7 @@ describe("gateway", () => {
   let gateway: Gateway;
 
   beforeEach(async () => {
-    gateway = await startGateway(config, { sttFactory: createFakeSttFactory() });
+    gateway = await startGateway(config, { sttFactory: createFakeSttFactory(), suggester: createFakeSuggester() });
   });
 
   afterEach(async () => {

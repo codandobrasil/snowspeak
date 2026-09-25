@@ -13,6 +13,8 @@ export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     allowedOrigins: new Set([ORIGIN]),
     authTimeoutMs: 200,
     deepgramApiKey: null,
+    openRouterApiKey: null,
+    suggestionModel: "test-model",
     ...overrides,
   };
 }

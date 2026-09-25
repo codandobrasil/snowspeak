@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createFakeSuggester } from "./suggest/openrouter";
 import { startGateway, type Gateway } from "./gateway";
 import type { SttResult } from "./stt/types";
 import { createScriptedSttHub } from "./test-support/scripted-stt";
@@ -23,7 +24,7 @@ describe("transcrição de ponta a ponta", () => {
 
   async function setup() {
     const hub = createScriptedSttHub();
-    gateway = await startGateway(testConfig(), { sttFactory: hub.factory });
+    gateway = await startGateway(testConfig(), { sttFactory: hub.factory, suggester: createFakeSuggester() });
     const client = await TestClient.started(gateway.url);
     return { hub, client };
   }

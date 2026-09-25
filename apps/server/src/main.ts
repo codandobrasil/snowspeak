@@ -4,7 +4,7 @@ import { createProviders } from "./providers";
 
 const config = loadConfig();
 const providers = createProviders(config);
-const gateway = await startGateway(config, { sttFactory: providers.sttFactory });
+const gateway = await startGateway(config, { sttFactory: providers.sttFactory, suggester: providers.suggester });
 console.log(`SnowSpeak server ouvindo em ${config.host}:${config.port} (ws em /ws, tom de teste em /tone)`);
 console.log(providers.description);
 

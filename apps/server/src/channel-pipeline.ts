@@ -16,6 +16,8 @@ export interface ChannelPipelineDeps {
   emit: (body: ServerEventBody) => void;
   sttLatency: LatencyStats;
   now: () => number;
+  /** Cada fala encerrada, com o texto completo (ex.: para sugestões de resposta). */
+  onUtterance?: (utterance: { channel: Channel; utteranceId: string; text: string; interrupted: boolean }) => void;
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,6 +31,7 @@ export class ChannelPipeline {
   private stt: SttStream | null;
   private audioForwarded = false;
   private onFinalizeSettled: (() => void) | null = null;
+  private readonly utteranceSegments = new Map<string, string[]>();
 
   constructor(private readonly deps: ChannelPipelineDeps) {
     this.assembler = new UtteranceAssembler(deps.channel);
@@ -121,7 +124,17 @@ export class ChannelPipeline {
 
   private handle(output: AssemblerOutput): void {
     this.deps.emit({ ...output, channel: this.deps.channel });
-    if (output.type === "transcript.segment") this.splitter?.addSegment(output.utteranceId, output.text);
-    if (output.type === "utterance.end") this.splitter?.endUtterance(output.utteranceId);
+    if (output.type === "transcript.segment") {
+      this.splitter?.addSegment(output.utteranceId, output.text);
+      const segments = this.utteranceSegments.get(output.utteranceId) ?? [];
+      segments.push(output.text);
+      this.utteranceSegments.set(output.utteranceId, segments);
+    }
+    if (output.type === "utterance.end") {
+      this.splitter?.endUtterance(output.utteranceId);
+      const text = (this.utteranceSegments.get(output.utteranceId) ?? []).join(" ");
+      this.utteranceSegments.delete(output.utteranceId);
+      this.deps.onUtterance?.({ channel: this.deps.channel, utteranceId: output.utteranceId, text, interrupted: output.interrupted });
+    }
   }
 }
