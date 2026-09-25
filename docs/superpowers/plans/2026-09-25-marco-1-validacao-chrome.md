@@ -34,6 +34,27 @@
 
 ---
 
+## Revisão 2 — correções aprovadas (prevalecem sobre o código das tasks abaixo)
+
+Execução: nativa, com revisão independente ao final. Onde uma correção conflita com um bloco de código de uma task, vale a correção; o código final no repositório é a referência.
+
+| # | Task | Correção |
+|---|---|---|
+| R1 | 2 | `parseServerMessage` valida com zod (`discriminatedUnion` por `type`): campos obrigatórios, `v: 1`, `channel ∈ {them, me}`, `seq` inteiro ≥ 1, `ts` numérico. Testes rejeitam evento sem `seq`, com canal inválido e controle sem `sessionId`. Inclui o evento `audio.gap { channel, durationMs, reason }`. |
+| R2 | 6, 7 | `openSocket` fica dentro de `try`; erro síncrono (URL inválida) libera as capturas e mostra "Endereço do servidor inválido.". Prazo `SESSION_START_TIMEOUT_MS = 5000` entre abrir o socket e receber `session.started`; estourou → libera tudo e mostra "O servidor não respondeu a tempo.". O painel valida a URL (`ws:`/`wss:`) antes de enviar. |
+| R3 | 7 | Cada início é uma tentativa identificada no service worker (`AttemptTracker`, módulo puro com testes): `begin()` recusa um segundo início pendente, `cancel()` (no Parar) invalida a tentativa em qualquer etapa anterior ao controlador, `isCurrent(id)` é verificado após cada `await`. O painel desabilita Iniciar no clique (estado local `pending`) e mantém Parar habilitado enquanto há início pendente. |
+| R4 | 7 | `createCapturePipe` fecha o `AudioContext` se `addModule` ou a montagem do grafo falhar; `captureTab`/`captureMic` fecham contexto de reprodução e trilhas em qualquer falha parcial. |
+| R5 | 3 | Servidor ganha `ChannelSequencer` (puro, com testes) por canal: rejeita `frameSeq` ≤ último aceito (duplicado/antigo) e `sampleOffset` < esperado (sobreposição); aceita lacunas e emite `audio.gap { reason: "client_drop", durationMs }` exato. Testes de integração cobrem duplicado e lacuna. |
+| R6 | 6, 7 | `CaptureCallbacks.onEnded(channel)`: `capture.ts` escuta `ended` das trilhas. Fim da aba → envia `session.stop`, libera tudo, erro "A captura da aba terminou (aba fechada ou compartilhamento encerrado).". Fim do microfone → libera só o microfone, `mic: "denied"`, sessão continua. |
+| R7 | 7, 8 | `streamId` sempre obtido no service worker: o clique no ícone (`openPanelOnActionClick: false`, `action.onClicked`) abre o painel e associa a aba (`invokedTabId` em `chrome.storage.session`); no Iniciar, o SW garante o offscreen, **então** chama `getMediaStreamId({ targetTabId })` e envia imediatamente ao offscreen. Contingência na Task 8: se o Chrome recusar fora do clique, o clique no ícone inicia a sessão diretamente com as configurações salvas. |
+| R8 | 3, 8 | STT falso vira sonda de sinal (`SignalProbe`, puro): a cada 1 s de áudio aceito informa duração, nível em dBFS e frequência dominante por cruzamentos de zero (`[fake-stt them] 2.0 s · -9 dBFS · ~440 Hz`, ou `silêncio`). Nada é gravado. Teste unitário e de integração com seno de 440 Hz; o servidor serve `GET /tone` (página com oscilador 440 Hz) para o roteiro manual conferir duração, amplitude e frequência de ponta a ponta. |
+
+Review Focus acrescido: 6. Aba capturada fechada ou compartilhamento encerrado → sessão encerra com mensagem e nada fica capturando (teste na Task 6: `encerra a sessão quando a captura da aba termina`; roteiro manual na Task 8).
+
+O marco só está concluído após o roteiro no Chrome, incluindo fechar a aba capturada e parar durante a inicialização. As contagens de testes citadas nas tasks são previsões; vale o resultado executado.
+
+---
+
 ## Estrutura de arquivos
 
 ```
