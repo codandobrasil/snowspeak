@@ -1,16 +1,33 @@
 import type { PanelStartParams, RuntimeMessage, StartResponse } from "../messaging";
 import { AttemptTracker } from "./attempt-tracker";
+import { addInvokedTab, removeInvokedTab, resolveCaptureTab } from "./invoked-tabs";
 
 const attempts = new AttemptTracker();
 let creatingOffscreen: Promise<void> | null = null;
 
-// O clique no ícone é a invocação que autoriza capturar a aba: abre o painel e associa a aba.
+// O clique no ícone é a invocação que autoriza capturar a aba: abre o painel e registra a aba.
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+
+async function readInvokedTabs(): Promise<number[]> {
+  const { invokedTabIds } = await chrome.storage.session.get("invokedTabIds");
+  return Array.isArray(invokedTabIds) ? (invokedTabIds as number[]) : [];
+}
+
+async function updateInvokedTabs(change: (tabs: number[]) => number[]): Promise<void> {
+  await chrome.storage.session.set({ invokedTabIds: change(await readInvokedTabs()) });
+}
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id === undefined) return;
-  void chrome.sidePanel.open({ tabId: tab.id }); // primeiro, ainda dentro do gesto do usuário
-  void chrome.storage.session.set({ invokedTabId: tab.id });
+  const tabId = tab.id;
+  void chrome.sidePanel.open({ tabId }); // primeiro, ainda dentro do gesto do usuário
+  void updateInvokedTabs((tabs) => addInvokedTab(tabs, tabId));
+});
+
+// Fechar ou recarregar a aba desfaz a autorização do Chrome; desfaz a nossa também.
+chrome.tabs.onRemoved.addListener((tabId) => void updateInvokedTabs((tabs) => removeInvokedTab(tabs, tabId)));
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading") void updateInvokedTabs((tabs) => removeInvokedTab(tabs, tabId));
 });
 
 async function ensureOffscreen(): Promise<void> {
@@ -32,18 +49,24 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function handleStart(params: PanelStartParams): Promise<StartResponse> {
+async function handleStart(params: PanelStartParams, activeTabId: number | undefined): Promise<StartResponse> {
   const attempt = attempts.begin();
   if (attempt === null) return { ok: false, error: "Já existe um início em andamento." };
   try {
-    const { invokedTabId } = await chrome.storage.session.get("invokedTabId");
-    if (typeof invokedTabId !== "number") return { ok: false, error: "Clique no ícone do SnowSpeak na aba da chamada." };
+    const target = resolveCaptureTab(await readInvokedTabs(), activeTabId);
+    if (!target.ok) return { ok: false, error: target.error };
 
     await ensureOffscreen();
     if (!attempts.isCurrent(attempt)) return { ok: false, cancelled: true };
 
     // O streamId expira em poucos segundos: obtido só agora, logo antes de entregar ao offscreen.
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: invokedTabId });
+    let streamId: string;
+    try {
+      streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: target.tabId });
+    } catch (error) {
+      console.warn(`getMediaStreamId falhou: ${errorText(error)}`);
+      return { ok: false, error: "Não foi possível capturar esta aba. Clique no ícone do SnowSpeak nela e tente de novo." };
+    }
     if (!attempts.isCurrent(attempt)) return { ok: false, cancelled: true };
 
     await chrome.runtime.sendMessage({ target: "offscreen", type: "start", params: { ...params, streamId } } satisfies RuntimeMessage);
@@ -59,11 +82,12 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
   if (message.target !== "background") return;
 
   if (message.type === "start") {
-    void handleStart(message.params).then(sendResponse);
+    void handleStart(message.params, message.tabId).then(sendResponse);
     return true; // resposta assíncrona
   }
 
   attempts.cancel();
   void chrome.runtime.sendMessage({ target: "offscreen", type: "stop" } satisfies RuntimeMessage).catch(() => undefined);
+  sendResponse({ ok: true });
   return;
 });

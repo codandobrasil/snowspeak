@@ -36,6 +36,7 @@ export async function startGateway(config: ServerConfig, deps: GatewayDeps): Pro
     verifyClient: (info: { origin: string }) => config.allowedOrigins.has(info.origin),
   });
   wss.on("connection", (ws) => handleConnection(ws, config, deps));
+  wss.on("error", (error) => console.warn(`erro no servidor WebSocket: ${error.message}`));
 
   await new Promise<void>((resolve) => server.listen(config.port, config.host, resolve));
   const { port } = server.address() as AddressInfo;
@@ -102,6 +103,10 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
 
     ws.close(CLOSE_CODES.protocolError, "invalid message");
   });
+
+  // Sem este listener, um erro de protocolo (ex.: mensagem acima de maxPayload) derrubaria o processo.
+  // O ws já fecha a conexão com o código adequado; só registramos.
+  ws.on("error", (error) => console.warn(`conexão encerrada por erro de protocolo: ${error.message}`));
 
   ws.on("close", () => {
     clearTimeout(authTimer);

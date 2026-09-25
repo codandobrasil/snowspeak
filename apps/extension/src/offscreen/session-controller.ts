@@ -4,6 +4,8 @@ import type { SessionStore } from "./session-store";
 
 export const STATS_INTERVAL_MS = 500;
 export const SESSION_START_TIMEOUT_MS = 5_000;
+// O offscreen não exibe pedido de permissão; se o getUserMedia do microfone ficar pendente, segue sem ele.
+export const MIC_CAPTURE_TIMEOUT_MS = 3_000;
 
 export interface StartParams {
   streamId: string;
@@ -53,6 +55,34 @@ interface Run {
   startTimer: ReturnType<typeof setTimeout> | null;
 }
 
+/** Rejeita após `ms`; uma captura que chegue depois do prazo é parada imediatamente. */
+function captureWithTimeout(capture: Promise<ChannelCapture>, ms: number): Promise<ChannelCapture> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      reject(new Error("tempo esgotado"));
+    }, ms);
+    capture.then(
+      (result) => {
+        if (settled) {
+          result.stop();
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -97,7 +127,7 @@ export class SessionController {
 
     let mic: ChannelCapture | null = null;
     try {
-      mic = await this.deps.captureMic(callbacks);
+      mic = await captureWithTimeout(this.deps.captureMic(callbacks), MIC_CAPTURE_TIMEOUT_MS);
     } catch {
       mic = null;
     }

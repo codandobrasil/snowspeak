@@ -113,10 +113,13 @@ startButton.addEventListener("click", async () => {
   render();
   try {
     await chrome.storage.local.set(settings);
+    // A aba que este painel está mostrando; o service worker só captura se o ícone foi clicado nela.
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const response = (await chrome.runtime.sendMessage({
       target: "background",
       type: "start",
       params: settings,
+      tabId: activeTab?.id,
     } satisfies RuntimeMessage)) as StartResponse | undefined;
     if (!response?.ok && !response?.cancelled) showLocalError(`Falha ao iniciar: ${response?.error ?? "sem resposta"}`);
   } catch (error) {
@@ -128,7 +131,7 @@ startButton.addEventListener("click", async () => {
 });
 
 stopButton.addEventListener("click", () => {
-  void chrome.runtime.sendMessage({ target: "background", type: "stop" } satisfies RuntimeMessage);
+  chrome.runtime.sendMessage({ target: "background", type: "stop" } satisfies RuntimeMessage).catch(() => undefined);
 });
 
 grantMicButton.addEventListener("click", () => {

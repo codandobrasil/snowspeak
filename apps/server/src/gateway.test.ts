@@ -166,6 +166,15 @@ describe("gateway", () => {
     expect(client.ws.readyState).toBe(WebSocket.OPEN);
   });
 
+  it("sobrevive a uma mensagem acima do limite de tamanho", async () => {
+    const client = await TestClient.started(gateway.url);
+    client.ws.send(new Uint8Array(70 * 1024));
+    expect((await client.closed).code).toBe(1009); // mensagem grande demais
+
+    const next = await TestClient.started(gateway.url);
+    expect(next.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
   it("ignora frames duplicados ou reenviados", async () => {
     const client = await TestClient.started(gateway.url);
     for (let i = 0; i < 10; i++) client.sendSilence("them", i);

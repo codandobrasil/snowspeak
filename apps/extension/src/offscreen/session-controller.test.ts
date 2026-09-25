@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeFrame, type Channel, type ClientMessage, type ServerMessage } from "@snowspeak/shared";
 import {
+  MIC_CAPTURE_TIMEOUT_MS,
   SESSION_START_TIMEOUT_MS,
   STATS_INTERVAL_MS,
   SessionController,
@@ -151,6 +152,21 @@ describe("SessionController", () => {
     const t = setup({ mic: () => Promise.reject(new DOMException("denied", "NotAllowedError")) });
     await startRunning(t);
     expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "denied" });
+  });
+
+  it("segue sem microfone quando o pedido do microfone não responde", async () => {
+    let resolveMic!: (capture: ChannelCapture) => void;
+    const t = setup({ mic: () => new Promise((resolve) => (resolveMic = resolve)) });
+    const pending = t.controller.start(params);
+    await vi.advanceTimersByTimeAsync(MIC_CAPTURE_TIMEOUT_MS);
+    await pending;
+    expect(t.sockets).toHaveLength(1);
+    expect(t.store.snapshot().mic).toBe("denied");
+
+    const late = fakeCapture();
+    resolveMic(late);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(late.stopped).toBe(true);
   });
 
   it("falha sem abrir socket quando a captura da aba falha", async () => {

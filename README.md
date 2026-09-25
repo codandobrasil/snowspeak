@@ -57,6 +57,7 @@ Marque cada item ao validar no Chrome:
 - [ ] **Parar**: status "Parado", barras zeradas e o indicador de captura da aba some.
 - [ ] **Parar durante a inicialização** (clicar Iniciar e logo em seguida Parar): nada fica capturando e é possível iniciar de novo.
 - [ ] **Fechar a aba capturada** durante a sessão: o painel mostra "A captura da aba terminou (aba fechada ou compartilhamento encerrado)." e nada fica capturando.
+- [ ] Com o painel aberto, trocar para outra aba (sem clicar no ícone nela) e clicar em Iniciar: aparece "Clique no ícone do SnowSpeak nesta aba para autorizar a captura." e nenhuma aba é capturada.
 - [ ] Chave errada: mensagem "Chave de acesso inválida." e nada fica capturando.
 - [ ] Servidor desligado: "Não foi possível conectar ao servidor." e nada fica capturando.
 - [ ] Endereço inválido no campo Servidor (ex.: `http://x`): mensagem de endereço inválido, sem iniciar a captura.

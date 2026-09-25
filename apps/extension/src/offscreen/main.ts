@@ -1,5 +1,6 @@
 import type { RuntimeMessage } from "../messaging";
 import { captureMic, captureTab } from "./capture";
+import { handleOffscreenMessage } from "./message-handler";
 import { SessionController } from "./session-controller";
 import { SessionStore } from "./session-store";
 import { openBrowserSocket } from "./socket";
@@ -14,16 +15,6 @@ store.subscribe((state) => {
 });
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
-  if (message.target !== "offscreen") return;
-  switch (message.type) {
-    case "start":
-      void controller.start(message.params);
-      break;
-    case "stop":
-      controller.stop();
-      break;
-    case "get-state":
-      sendResponse(store.snapshot());
-      break;
-  }
+  const response = handleOffscreenMessage(message, controller, store);
+  if (response !== undefined) sendResponse(response);
 });

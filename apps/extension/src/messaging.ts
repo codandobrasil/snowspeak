@@ -1,11 +1,11 @@
 import type { StartParams } from "./offscreen/session-controller";
 import type { SessionState } from "./offscreen/session-store";
 
-/** O painel não conhece o streamId: o service worker o obtém para a aba associada ao clique no ícone. */
+/** O painel não conhece o streamId: o service worker o obtém para a aba que o painel mostra (tabId). */
 export type PanelStartParams = Omit<StartParams, "streamId">;
 
 export type BackgroundMessage =
-  | { target: "background"; type: "start"; params: PanelStartParams }
+  | { target: "background"; type: "start"; params: PanelStartParams; tabId: number | undefined }
   | { target: "background"; type: "stop" };
 
 export type OffscreenMessage =
