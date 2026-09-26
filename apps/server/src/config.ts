@@ -1,3 +1,5 @@
+import { DEFAULT_EVENT_BUFFER_SIZE } from "./event-buffer";
+
 export const DEFAULT_SUGGESTION_MODEL = "anthropic/claude-haiku-4.5";
 
 export interface ServerConfig {
@@ -9,6 +11,13 @@ export interface ServerConfig {
   deepgramApiKey: string | null;
   openRouterApiKey: string | null;
   suggestionModel: string;
+  /** Quanto tempo uma sessão sem socket espera a retomada. */
+  resumeWindowMs: number;
+  eventBufferSize: number;
+  heartbeatIntervalMs: number;
+  pingIntervalMs: number;
+  /** POST /dev/drop-sockets (só para validar a retomada). */
+  devEndpoints: boolean;
 }
 
 function parseList(value: string | undefined): Set<string> {
@@ -35,5 +44,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     deepgramApiKey: env.DEEPGRAM_API_KEY?.trim() || null,
     openRouterApiKey: env.OPENROUTER_API_KEY?.trim() || null,
     suggestionModel: env.SUGGESTION_MODEL?.trim() || DEFAULT_SUGGESTION_MODEL,
+    resumeWindowMs: 60_000,
+    eventBufferSize: DEFAULT_EVENT_BUFFER_SIZE,
+    heartbeatIntervalMs: 5_000,
+    pingIntervalMs: 10_000,
+    devEndpoints: env.DEV_ENDPOINTS?.trim() === "1",
   };
 }

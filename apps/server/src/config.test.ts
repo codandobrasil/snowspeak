@@ -19,4 +19,10 @@ describe("loadConfig", () => {
     expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: " dg " }).deepgramApiKey).toBe("dg");
     expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: "" }).deepgramApiKey).toBeNull();
   });
+
+  it("aplica os prazos da retomada e liga os endpoints de desenvolvimento só com DEV_ENDPOINTS=1", () => {
+    const config = loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o" });
+    expect(config).toMatchObject({ resumeWindowMs: 60_000, eventBufferSize: 2_000, heartbeatIntervalMs: 5_000, pingIntervalMs: 10_000, devEndpoints: false });
+    expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEV_ENDPOINTS: "1" }).devEndpoints).toBe(true);
+  });
 });
