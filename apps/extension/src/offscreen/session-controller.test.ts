@@ -3,6 +3,7 @@ import { decodeFrame, type Channel, type ClientMessage, type ServerMessage } fro
 import {
   MIC_CAPTURE_TIMEOUT_MS,
   SESSION_START_TIMEOUT_MS,
+  STOP_TIMEOUT_MS,
   STATS_INTERVAL_MS,
   SessionController,
   type CaptureCallbacks,
@@ -63,7 +64,15 @@ function fakeCapture(): FakeCapture {
   return capture;
 }
 
-const params: StartParams = { streamId: "stream-1", serverUrl: "ws://server/ws", token: "key-1", mode: "work", context: "" };
+const params: StartParams = {
+  streamId: "stream-1",
+  serverUrl: "ws://server/ws",
+  token: "key-1",
+  mode: "work",
+  context: "",
+  profile: "Node dev",
+  job: "Backend",
+};
 const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
 
 interface SetupOverrides {
@@ -128,7 +137,7 @@ describe("SessionController", () => {
     expect(t.deps.captureTab).toHaveBeenCalledWith("stream-1", expect.anything());
     expect(t.sockets).toHaveLength(1);
     t.sockets[0]!.open();
-    expect(t.sockets[0]!.json).toEqual([{ type: "session.start", token: "key-1", mode: "work", context: "" }]);
+    expect(t.sockets[0]!.json).toEqual([{ type: "session.start", token: "key-1", mode: "work", context: "", profile: "Node dev", job: "Backend" }]);
     t.sockets[0]!.receive(started);
     expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "active" });
   });
@@ -240,17 +249,67 @@ describe("SessionController", () => {
     expect(t.tab.stopped).toBe(true);
   });
 
-  it("stop envia session.stop, fecha tudo e ignora o fechamento posterior", async () => {
+  it("stop para a captura, envia session.stop e continua recebendo até o servidor encerrar", async () => {
+    const t = setup();
+    const seen: string[] = [];
+    const controller = new SessionController({ ...t.deps, onServerMessage: (m) => seen.push(m.type) });
+    await controller.start(params);
+    const socket = t.sockets[0]!;
+    socket.open();
+    socket.receive(started);
+    controller.stop();
+    expect(socket.json.at(-1)).toEqual({ type: "session.stop" });
+    expect(socket.closed).toBe(false);
+    expect(t.tab.stopped && t.mic.stopped).toBe(true);
+    expect(t.store.snapshot().status).toBe("stopping");
+
+    socket.receive({ v: 1, sessionId: "s1", seq: 1, ts: 0, type: "sentence.ready", channel: "them", utteranceId: "them-1", sentenceIdx: 0, text: "Last words." });
+    expect(seen).toEqual(["session.started", "sentence.ready"]);
+
+    socket.receive({ v: 1, type: "session.ended", sessionId: "s1", reason: "stopped" });
+    socket.serverClose(4410);
+    expect(t.store.snapshot()).toMatchObject({ status: "idle", errorMessage: null });
+    expect(socket.closed).toBe(true);
+  });
+
+  it("stop desiste de esperar o servidor depois do prazo de segurança", async () => {
     const t = setup();
     const socket = await startRunning(t);
     t.controller.stop();
-    expect(socket.json.at(-1)).toEqual({ type: "session.stop" });
+    vi.advanceTimersByTime(STOP_TIMEOUT_MS);
+    expect(t.store.snapshot().status).toBe("idle");
+    expect(socket.closed).toBe(true);
+    socket.serverClose(1006);
+    expect(t.store.snapshot()).toMatchObject({ status: "idle", errorMessage: null });
+  });
+
+  it("stop antes de a sessão começar libera tudo na hora", async () => {
+    const t = setup();
+    await t.controller.start(params);
+    const socket = t.sockets[0]!;
+    socket.open();
+    t.controller.stop();
     expect(socket.closed).toBe(true);
     expect(t.tab.stopped && t.mic.stopped).toBe(true);
     expect(t.store.snapshot().status).toBe("idle");
+  });
 
-    socket.serverClose(1006);
-    expect(t.store.snapshot().status).toBe("idle");
+  it("ignora o fim da captura da aba enquanto finaliza", async () => {
+    const t = setup();
+    await startRunning(t);
+    t.controller.stop();
+    t.emitEnded("them");
+    expect(t.store.snapshot()).toMatchObject({ status: "stopping", errorMessage: null });
+  });
+
+  it("repassa as mensagens do servidor ao gancho, depois de aplicá-las ao store", async () => {
+    const t = setup();
+    const seen: Array<{ type: string; status: string }> = [];
+    const controller = new SessionController({ ...t.deps, onServerMessage: (m) => seen.push({ type: m.type, status: t.store.snapshot().status }) });
+    await controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.receive(started);
+    expect(seen).toEqual([{ type: "session.started", status: "running" }]);
   });
 
   it("stop durante a captura da aba descarta a captura atrasada", async () => {
@@ -297,5 +356,39 @@ describe("SessionController", () => {
     vi.advanceTimersByTime(STATS_INTERVAL_MS);
     expect(t.store.snapshot().channels.them.sentFrames).toBe(1);
     expect(t.store.snapshot().channels.me.sentFrames).toBe(1);
+  });
+  it("pede sugestão ao servidor com um requestId novo", async () => {
+    const t = setup();
+    const controller = new SessionController({ ...t.deps, newRequestId: () => "req-1" });
+    await controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.receive(started);
+    controller.requestSuggestion();
+    expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-1" });
+  });
+
+  it("pede sugestão para a pergunta escolhida", async () => {
+    const t = setup();
+    const controller = new SessionController({ ...t.deps, newRequestId: () => "req-2" });
+    await controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.receive(started);
+    controller.requestSuggestion({ utteranceId: "them-3", text: "Why us?" });
+    expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-2", question: { utteranceId: "them-3", text: "Why us?" } });
+  });
+
+  it("não pede sugestão sem sessão iniciada", async () => {
+    const t = setup();
+    await t.controller.start(params);
+    t.sockets[0]!.open();
+    t.controller.requestSuggestion();
+    expect(t.sockets[0]!.json.map((m) => m.type)).toEqual(["session.start"]);
+  });
+
+  it("envia mudanças de contexto durante a sessão", async () => {
+    const t = setup();
+    const socket = await startRunning(t);
+    t.controller.update({ job: "Staff Engineer" });
+    expect(socket.json.at(-1)).toEqual({ type: "session.update", job: "Staff Engineer" });
   });
 });

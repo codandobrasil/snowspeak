@@ -6,7 +6,7 @@ import type { SttResult } from "./types";
 describe("FakeStt", () => {
   it("emite um relatório a cada segundo de áudio recebido", () => {
     const results: SttResult[] = [];
-    const stt = createFakeSttFactory()("them", (r) => results.push(r));
+    const stt = createFakeSttFactory()("them", { onResult: (r) => results.push(r), onError: () => {} });
     for (let i = 0; i < 9; i++) stt.write(new Uint8Array(3200));
     expect(results).toHaveLength(0);
     stt.write(new Uint8Array(3200));
@@ -17,7 +17,7 @@ describe("FakeStt", () => {
 
   it("não emite nada depois de fechado", () => {
     const results: SttResult[] = [];
-    const stt = createFakeSttFactory({ reportEveryMs: 100 })("me", (r) => results.push(r));
+    const stt = createFakeSttFactory({ reportEveryMs: 100 })("me", { onResult: (r) => results.push(r), onError: () => {} });
     stt.close();
     stt.write(new Uint8Array(3200));
     expect(results).toHaveLength(0);

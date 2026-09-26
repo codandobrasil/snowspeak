@@ -1,18 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import {
-  frameSamples,
-  samplesToMs,
-  type AudioFrame,
-  type Channel,
-  type Mode,
-  type ServerEventBody,
-  type ServerMessage,
-} from "@snowspeak/shared";
-import { ChannelSequencer } from "./channel-sequencer";
-import type { SttFactory, SttResult, SttStream } from "./stt/types";
+import type { AudioFrame, Channel, ServerEventBody, ServerMessage } from "@snowspeak/shared";
+import { ChannelPipeline } from "./channel-pipeline";
+import { LatencyStats, formatLatency } from "./latency";
+import type { SttFactory } from "./stt/types";
+import type { Suggester } from "./suggest/openrouter";
+import { SuggestionEngine, type SuggestionSettings } from "./suggest/suggestion-engine";
 
 export interface SessionDeps {
   sttFactory: SttFactory;
+  suggester: Suggester;
   send: (message: ServerMessage) => void;
   now?: () => number;
 }
@@ -21,38 +17,67 @@ export class Session {
   readonly id = randomUUID();
   readonly resumeToken = randomBytes(32).toString("base64url");
   private seq = 0;
-  private readonly stt: Record<Channel, SttStream>;
-  private readonly sequencers: Record<Channel, ChannelSequencer> = { them: new ChannelSequencer(), me: new ChannelSequencer() };
+  private closed = false;
+  private readonly sttLatency = new LatencyStats();
+  private readonly pipelines: Record<Channel, ChannelPipeline>;
+  private readonly engine: SuggestionEngine;
+  private settings: SuggestionSettings;
 
   constructor(
     private readonly deps: SessionDeps,
-    readonly mode: Mode,
-    readonly context: string,
+    settings: SuggestionSettings,
   ) {
-    this.stt = {
-      them: deps.sttFactory("them", (result) => this.onSttResult("them", result)),
-      me: deps.sttFactory("me", (result) => this.onSttResult("me", result)),
-    };
+    const now = deps.now ?? Date.now;
+    this.settings = { ...settings };
+    this.engine = new SuggestionEngine({
+      suggester: deps.suggester,
+      emit: (body) => this.emit(body),
+      settings: () => ({ ...this.settings }),
+      now,
+    });
+    const pipeline = (channel: Channel): ChannelPipeline =>
+      new ChannelPipeline({
+        channel,
+        sttFactory: deps.sttFactory,
+        splitSentences: channel === "them",
+        emit: (body) => this.emit(body),
+        sttLatency: this.sttLatency,
+        now,
+        onUtterance: (utterance) => this.engine.addUtterance(utterance),
+      });
+    this.pipelines = { them: pipeline("them"), me: pipeline("me") };
   }
 
-  /** Retorna false quando o frame é duplicado ou sobrepõe áudio já aceito. */
   acceptFrame(frame: AudioFrame): boolean {
-    const result = this.sequencers[frame.channel].accept(frame.frameSeq, frame.sampleOffset, frameSamples(frame));
-    if (!result.accepted) return false;
-    if (result.gapSamples > 0) {
-      this.emit({ type: "audio.gap", channel: frame.channel, durationMs: samplesToMs(result.gapSamples), reason: "client_drop" });
-    }
-    this.stt[frame.channel].write(frame.pcm);
-    return true;
+    return this.pipelines[frame.channel].acceptFrame(frame);
+  }
+
+  /** Modo, contexto, currículo e vaga valem para as próximas sugestões. */
+  update(changes: Partial<SuggestionSettings>): void {
+    const defined = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined));
+    this.settings = { ...this.settings, ...defined };
+  }
+
+  /** Início do Parar: a conversa segue sendo registrada, mas sem novas sugestões. */
+  beginStop(): void {
+    this.engine.stopAccepting();
+  }
+
+  requestSuggestion(requestId: string, question?: { utteranceId: string; text: string }): void {
+    this.engine.request(requestId, question);
+  }
+
+  async drain(): Promise<void> {
+    await Promise.all([this.pipelines.them.drain(), this.pipelines.me.drain()]);
   }
 
   close(): void {
-    this.stt.them.close();
-    this.stt.me.close();
-  }
-
-  private onSttResult(channel: Channel, result: SttResult): void {
-    this.emit({ type: "transcript.partial", channel, text: result.text });
+    if (this.closed) return;
+    this.closed = true;
+    this.engine.close();
+    this.pipelines.them.close();
+    this.pipelines.me.close();
+    console.info(`sessão ${this.id.slice(0, 8)} encerrada · ${formatLatency("latência estimada do STT (segmento final)", this.sttLatency)}`);
   }
 
   private emit(body: ServerEventBody): void {

@@ -5,10 +5,12 @@ import { CLOSE_CODES, decodeFrame, parseClientMessage, type ServerMessage } from
 import type { ServerConfig } from "./config";
 import { Session } from "./session";
 import type { SttFactory } from "./stt/types";
+import type { Suggester } from "./suggest/openrouter";
 import { TONE_PAGE_HTML } from "./tone-page";
 
 export interface GatewayDeps {
   sttFactory: SttFactory;
+  suggester: Suggester;
 }
 
 export interface Gateway {
@@ -59,6 +61,7 @@ function toBytes(data: RawData): Uint8Array {
 
 function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps): void {
   let session: Session | null = null;
+  let stopping = false;
   let rejectedFrames = 0;
 
   const send = (message: ServerMessage): void => {
@@ -72,6 +75,7 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
         ws.close(CLOSE_CODES.protocolError, "audio before session");
         return;
       }
+      if (stopping) return;
       const decoded = decodeFrame(toBytes(data));
       if (!decoded.ok || !session.acceptFrame(decoded.frame)) rejectedFrames += 1;
       return;
@@ -88,16 +92,37 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
         return;
       }
       clearTimeout(authTimer);
-      session = new Session({ sttFactory: deps.sttFactory, send }, message.mode, message.context);
+      session = new Session(
+        { sttFactory: deps.sttFactory, suggester: deps.suggester, send },
+        { mode: message.mode, context: message.context, profile: message.profile ?? "", job: message.job ?? "" },
+      );
       send({ v: 1, type: "session.started", sessionId: session.id, resumeToken: session.resumeToken });
       return;
     }
 
+    if (stopping) return;
+
     if (message?.type === "session.stop") {
-      send({ v: 1, type: "session.ended", sessionId: session.id, reason: "stopped" });
-      session.close();
-      session = null;
-      ws.close(CLOSE_CODES.sessionEnded, "stopped");
+      stopping = true;
+      const current = session;
+      current.beginStop();
+      // Entrega as últimas palavras e frases antes de encerrar.
+      void current.drain().finally(() => {
+        // close() cancela a sugestão em andamento e avisa antes do session.ended.
+        current.close();
+        send({ v: 1, type: "session.ended", sessionId: current.id, reason: "stopped" });
+        ws.close(CLOSE_CODES.sessionEnded, "stopped");
+      });
+      return;
+    }
+
+    if (message?.type === "session.update") {
+      session.update(message);
+      return;
+    }
+
+    if (message?.type === "suggest.request") {
+      session.requestSuggestion(message.requestId, message.question);
       return;
     }
 

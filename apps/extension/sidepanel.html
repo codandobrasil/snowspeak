@@ -11,7 +11,8 @@
       <span id="status" class="status">Parado</span>
     </header>
 
-    <section class="settings">
+    <details id="settings" class="settings" open>
+      <summary>Configurações</summary>
       <label>Servidor <input id="serverUrl" type="url" /></label>
       <label>Chave de acesso <input id="token" type="password" autocomplete="off" /></label>
       <label>
@@ -24,32 +25,64 @@
         </select>
       </label>
       <label>Contexto <textarea id="context" rows="3"></textarea></label>
-    </section>
+      <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
+      <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
+      <p class="hint">Currículo e vaga ficam salvos só neste navegador; vão ao servidor e ao provedor de IA apenas para gerar sugestões.</p>
+    </details>
 
     <div class="actions">
       <button id="start">Iniciar</button>
       <button id="stop" disabled>Parar</button>
+      <button id="skip-translator" hidden>Continuar só em inglês</button>
+      <button id="portuguese-only" class="toggle" aria-pressed="false" title="Mostrar só a tradução das falas dos participantes">Só português</button>
+      <button id="clear" title="Apagar a legenda e a sugestão (a fala em andamento continua)">Limpar</button>
+      <span class="dots" aria-hidden="true">
+        <span class="dot" data-dot="them" title="Participantes"></span>
+        <span class="dot" data-dot="me" title="Você"></span>
+      </span>
     </div>
+
+    <p id="width-hint" class="hint" hidden>
+      Dica: arraste a borda esquerda do painel para alargá-lo. <button id="dismiss-width-hint" class="link">ok</button>
+    </p>
 
     <p id="mic-permission" class="notice" hidden>
       O microfone ainda não foi liberado. <button id="grant-mic">Liberar microfone</button>
     </p>
     <p id="local-error" class="error" hidden></p>
+    <p id="local-notice" class="warning" hidden></p>
     <p id="error" class="error" hidden></p>
+    <p id="notice" class="warning" hidden></p>
     <p id="mic-denied" class="warning" hidden>Sugestões sem suas falas: microfone indisponível.</p>
 
-    <section class="channel" data-channel="them">
-      <h2>Participantes</h2>
-      <div class="meter"><div class="bar"></div></div>
-      <p class="stats"></p>
-      <p class="partial"></p>
-    </section>
+    <div class="meters">
+      <div class="channel" data-channel="them">
+        <span class="label">Participantes</span>
+        <div class="meter"><div class="bar"></div></div>
+        <span class="stats"></span>
+      </div>
+      <div class="channel" data-channel="me">
+        <span class="label">Você</span>
+        <div class="meter"><div class="bar"></div></div>
+        <span class="stats"></span>
+      </div>
+    </div>
 
-    <section class="channel" data-channel="me">
-      <h2>Você</h2>
-      <div class="meter"><div class="bar"></div></div>
-      <p class="stats"></p>
-      <p class="partial"></p>
+    <div class="columns-header" aria-hidden="true"><span id="column-them"></span><span id="column-me"></span></div>
+    <ol id="captions" class="captions" aria-live="polite">
+      <li id="suggestion-item" class="suggestion-item" hidden>
+        <div id="suggestion" class="suggestion">
+          <div class="suggestion-label"><span id="suggestion-label"></span> <span id="suggestion-pending" class="pending-dot" hidden>gerando…</span></div>
+          <p id="suggestion-en" class="suggestion-en"></p>
+          <p id="suggestion-pt" class="suggestion-pt"></p>
+          <p id="suggestion-error" class="warning" hidden></p>
+          <p id="suggestion-notice" class="notice" hidden></p>
+        </div>
+      </li>
+    </ol>
+
+    <section class="suggestion-area">
+      <button id="suggest" class="suggest-button">Sugerir resposta (Alt+S)</button>
     </section>
 
     <script type="module" src="/src/sidepanel/main.ts"></script>

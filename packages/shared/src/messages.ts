@@ -4,6 +4,9 @@ import type { Channel } from "./audio-frame";
 export const MODES = ["work", "sales", "interview", "relationship"] as const;
 export type Mode = (typeof MODES)[number];
 export const MAX_CONTEXT_CHARS = 2_000;
+export const MAX_PROFILE_CHARS = 8_000;
+export const MAX_JOB_CHARS = 8_000;
+export const MAX_QUESTION_CHARS = 2_000;
 
 export const CLOSE_CODES = {
   protocolError: 4400,
@@ -29,6 +32,21 @@ const clientMessageSchema = z.discriminatedUnion("type", [
     token: z.string().min(1),
     mode: z.enum(MODES),
     context: z.string().max(MAX_CONTEXT_CHARS),
+    profile: z.string().max(MAX_PROFILE_CHARS).optional(),
+    job: z.string().max(MAX_JOB_CHARS).optional(),
+  }),
+  z.object({
+    type: z.literal("session.update"),
+    mode: z.enum(MODES).optional(),
+    context: z.string().max(MAX_CONTEXT_CHARS).optional(),
+    profile: z.string().max(MAX_PROFILE_CHARS).optional(),
+    job: z.string().max(MAX_JOB_CHARS).optional(),
+  }),
+  z.object({
+    type: z.literal("suggest.request"),
+    requestId: z.string().min(1).max(64),
+    /** Pergunta que o usuário escolheu no painel; sem ela, a sugestão responde à última fala dos participantes. */
+    question: z.object({ utteranceId: z.string().min(1).max(64), text: z.string().min(1).max(MAX_QUESTION_CHARS) }).optional(),
   }),
   z.object({ type: z.literal("session.stop") }),
 ]);
@@ -65,18 +83,52 @@ const sessionEndedSchema = z.object({
   reason: z.enum(SESSION_END_REASONS),
 });
 
+export const ERROR_SCOPES = ["stt", "translate", "suggest", "session"] as const;
+export const SUGGESTION_TRIGGERS = ["auto", "manual"] as const;
+export type SuggestionTrigger = (typeof SUGGESTION_TRIGGERS)[number];
+export const SUGGESTION_ERROR_CODES = ["busy", "rate_limited", "timeout", "invalid_output", "provider", "cancelled"] as const;
+export type SuggestionErrorCode = (typeof SUGGESTION_ERROR_CODES)[number];
+export type ErrorScope = (typeof ERROR_SCOPES)[number];
+
 // Eventos: envelope com seq monotônico.
 const envelopeShape = {
   v: z.literal(1),
   sessionId: z.string().min(1),
   seq: z.number().int().min(1),
   ts: z.number(),
-  utteranceId: z.string().optional(),
 };
+
+const utteranceIdSchema = z.string().min(1);
+const indexSchema = z.number().int().min(0);
 
 const transcriptPartialBody = z.object({
   type: z.literal("transcript.partial"),
   channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  text: z.string(),
+});
+
+const transcriptSegmentBody = z.object({
+  type: z.literal("transcript.segment"),
+  channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  segmentIdx: indexSchema,
+  text: z.string(),
+});
+
+const utteranceEndBody = z.object({
+  type: z.literal("utterance.end"),
+  channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  interrupted: z.boolean(),
+});
+
+// Frase do canal them pronta para tradução (a tradução acontece no cliente).
+const sentenceReadyBody = z.object({
+  type: z.literal("sentence.ready"),
+  channel: channelSchema,
+  utteranceId: utteranceIdSchema,
+  sentenceIdx: indexSchema,
   text: z.string(),
 });
 
@@ -87,11 +139,57 @@ const audioGapBody = z.object({
   reason: z.enum(AUDIO_GAP_REASONS),
 });
 
+const errorBody = z.object({
+  type: z.literal("error"),
+  scope: z.enum(ERROR_SCOPES),
+  code: z.string().min(1),
+  retryable: z.boolean(),
+  message: z.string(),
+  channel: channelSchema.optional(),
+});
+
+const requestIdSchema = z.string().min(1).max(64);
+
+const suggestionStartedBody = z.object({
+  type: z.literal("suggestion.started"),
+  requestId: requestIdSchema,
+  trigger: z.enum(SUGGESTION_TRIGGERS),
+  basedOnUtteranceId: z.string().min(1).nullable(),
+});
+
+const suggestionDeltaBody = z.object({
+  type: z.literal("suggestion.delta"),
+  requestId: requestIdSchema,
+  lang: z.enum(["en", "pt"]),
+  text: z.string(),
+});
+
+const suggestionDoneBody = z.object({
+  type: z.literal("suggestion.done"),
+  requestId: requestIdSchema,
+  en: z.string().min(1),
+  pt: z.string().min(1),
+});
+
+const suggestionErrorBody = z.object({
+  type: z.literal("suggestion.error"),
+  requestId: requestIdSchema,
+  code: z.enum(SUGGESTION_ERROR_CODES),
+});
+
 const serverMessageSchema = z.discriminatedUnion("type", [
   sessionStartedSchema,
   sessionEndedSchema,
   transcriptPartialBody.extend(envelopeShape),
+  transcriptSegmentBody.extend(envelopeShape),
+  utteranceEndBody.extend(envelopeShape),
+  sentenceReadyBody.extend(envelopeShape),
   audioGapBody.extend(envelopeShape),
+  errorBody.extend(envelopeShape),
+  suggestionStartedBody.extend(envelopeShape),
+  suggestionDeltaBody.extend(envelopeShape),
+  suggestionDoneBody.extend(envelopeShape),
+  suggestionErrorBody.extend(envelopeShape),
 ]);
 
 export type ServerControl = z.infer<typeof sessionStartedSchema> | z.infer<typeof sessionEndedSchema>;
@@ -101,10 +199,19 @@ export interface EventEnvelope {
   sessionId: string;
   seq: number;
   ts: number;
-  utteranceId?: string;
 }
 
-export type ServerEventBody = z.infer<typeof transcriptPartialBody> | z.infer<typeof audioGapBody>;
+export type ServerEventBody =
+  | z.infer<typeof transcriptPartialBody>
+  | z.infer<typeof transcriptSegmentBody>
+  | z.infer<typeof utteranceEndBody>
+  | z.infer<typeof sentenceReadyBody>
+  | z.infer<typeof audioGapBody>
+  | z.infer<typeof errorBody>
+  | z.infer<typeof suggestionStartedBody>
+  | z.infer<typeof suggestionDeltaBody>
+  | z.infer<typeof suggestionDoneBody>
+  | z.infer<typeof suggestionErrorBody>;
 
 export type ServerEvent = EventEnvelope & ServerEventBody;
 

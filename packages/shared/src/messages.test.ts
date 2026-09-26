@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_CONTEXT_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
+import { MAX_CONTEXT_CHARS, MAX_PROFILE_CHARS, MAX_QUESTION_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
 
 describe("parseClientMessage", () => {
   it("aceita session.start válido", () => {
@@ -27,7 +27,7 @@ describe("parseClientMessage", () => {
 describe("mensagens do servidor", () => {
   it("distingue eventos (com seq) de mensagens de controle", () => {
     const control: ServerMessage = { v: 1, type: "session.started", sessionId: "s", resumeToken: "r" };
-    const event: ServerMessage = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", text: "hi" };
+    const event: ServerMessage = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1", text: "hi" };
     expect(isServerEvent(control)).toBe(false);
     expect(isServerEvent(event)).toBe(true);
   });
@@ -50,7 +50,7 @@ describe("mensagens do servidor", () => {
   });
 
   it("rejeita evento sem seq, com seq inválido ou canal desconhecido", () => {
-    const partial = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", text: "hi" };
+    const partial = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1", text: "hi" };
     const { seq: _seq, ...withoutSeq } = partial;
     expect(parseServerMessage(JSON.stringify(withoutSeq))).toBeNull();
     expect(parseServerMessage(JSON.stringify({ ...partial, seq: 0 }))).toBeNull();
@@ -61,5 +61,66 @@ describe("mensagens do servidor", () => {
   it("rejeita controle sem sessionId e motivo de encerramento desconhecido", () => {
     expect(parseServerMessage('{"v":1,"type":"session.started","resumeToken":"r"}')).toBeNull();
     expect(parseServerMessage('{"v":1,"type":"session.ended","sessionId":"s","reason":"bored"}')).toBeNull();
+  });
+  it("aceita os eventos de transcrição e de frase pronta", () => {
+    const base = { v: 1, sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1" };
+    const events = [
+      { ...base, type: "transcript.partial", text: "hel" },
+      { ...base, type: "transcript.segment", segmentIdx: 0, text: "Hello." },
+      { ...base, type: "utterance.end", interrupted: false },
+      { ...base, type: "sentence.ready", sentenceIdx: 0, text: "Hello." },
+    ];
+    for (const event of events) expect(parseServerMessage(JSON.stringify(event))).toEqual(event);
+  });
+
+  it("aceita evento de erro com e sem canal", () => {
+    const error = { v: 1, sessionId: "s", seq: 2, ts: 0, type: "error", scope: "stt", code: "stt_connection_lost", retryable: false, message: "caiu" };
+    expect(parseServerMessage(JSON.stringify(error))).toEqual(error);
+    expect(parseServerMessage(JSON.stringify({ ...error, channel: "me" }))).toEqual({ ...error, channel: "me" });
+    expect(parseServerMessage(JSON.stringify({ ...error, scope: "universe" }))).toBeNull();
+  });
+
+  it("rejeita eventos de fala sem utteranceId ou com índice inválido", () => {
+    const base = { v: 1, sessionId: "s", seq: 1, ts: 0, channel: "them" };
+    expect(parseServerMessage(JSON.stringify({ ...base, type: "transcript.partial", text: "x" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "transcript.segment", segmentIdx: -1, text: "x" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, utteranceId: "them-1", type: "sentence.ready", sentenceIdx: 0.5, text: "b" }))).toBeNull();
+  });
+});
+
+describe("mensagens de sugestão", () => {
+  it("session.start aceita currículo e vaga opcionais, com limite", () => {
+    const start = { type: "session.start", token: "k", mode: "interview", context: "", profile: "Dev backend 8 anos", job: "Senior Backend" };
+    expect(parseClientMessage(JSON.stringify(start))).toEqual(start);
+    expect(parseClientMessage(JSON.stringify({ ...start, profile: "x".repeat(MAX_PROFILE_CHARS + 1) }))).toBeNull();
+  });
+
+  it("aceita session.update parcial e suggest.request", () => {
+    expect(parseClientMessage('{"type":"session.update","job":"Nova vaga"}')).toEqual({ type: "session.update", job: "Nova vaga" });
+    expect(parseClientMessage('{"type":"suggest.request","requestId":"abc"}')).toEqual({ type: "suggest.request", requestId: "abc" });
+    expect(parseClientMessage('{"type":"suggest.request","requestId":""}')).toBeNull();
+  });
+
+  it("aceita suggest.request com a pergunta escolhida e recusa pergunta inválida", () => {
+    const question = { utteranceId: "them-3", text: "Why fintech?" };
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question }))).toEqual({ type: "suggest.request", requestId: "a", question });
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question: { utteranceId: "", text: "x" } }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question: { utteranceId: "them-3", text: "" } }))).toBeNull();
+    const tooLong = "x".repeat(MAX_QUESTION_CHARS + 1);
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question: { utteranceId: "them-3", text: tooLong } }))).toBeNull();
+  });
+
+  it("aceita os eventos de sugestão", () => {
+    const base = { v: 1, sessionId: "s", seq: 1, ts: 0, requestId: "r1" };
+    const events = [
+      { ...base, type: "suggestion.started", trigger: "auto", basedOnUtteranceId: "them-3" },
+      { ...base, type: "suggestion.started", trigger: "manual", basedOnUtteranceId: null },
+      { ...base, type: "suggestion.delta", lang: "en", text: "Sure" },
+      { ...base, type: "suggestion.done", en: "Sure.", pt: "Claro." },
+      { ...base, type: "suggestion.error", code: "busy" },
+    ];
+    for (const event of events) expect(parseServerMessage(JSON.stringify(event))).toEqual(event);
+    expect(parseServerMessage(JSON.stringify({ ...base, type: "suggestion.error", code: "exploded" }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ ...base, type: "suggestion.delta", lang: "es", text: "x" }))).toBeNull();
   });
 });

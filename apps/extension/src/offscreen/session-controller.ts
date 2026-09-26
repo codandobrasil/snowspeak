@@ -6,6 +6,8 @@ export const STATS_INTERVAL_MS = 500;
 export const SESSION_START_TIMEOUT_MS = 5_000;
 // O offscreen não exibe pedido de permissão; se o getUserMedia do microfone ficar pendente, segue sem ele.
 export const MIC_CAPTURE_TIMEOUT_MS = 3_000;
+// Parar espera o servidor entregar as últimas falas; depois disso fecha mesmo assim.
+export const STOP_TIMEOUT_MS = 3_000;
 
 export interface StartParams {
   streamId: string;
@@ -13,7 +15,18 @@ export interface StartParams {
   token: string;
   mode: Mode;
   context: string;
+  profile: string;
+  job: string;
 }
+
+/** Campos que podem mudar durante a sessão (valem para as próximas sugestões). */
+/** Pergunta que o usuário escolheu no painel. */
+export interface SuggestionQuestion {
+  utteranceId: string;
+  text: string;
+}
+
+export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job">>;
 
 export interface ChannelCapture {
   stop(): void;
@@ -43,6 +56,10 @@ export interface ControllerDeps {
   captureMic(cb: CaptureCallbacks): Promise<ChannelCapture>;
   /** Pode lançar de forma síncrona (ex.: URL inválida). */
   openSocket(url: string, handlers: SocketHandlers): ControllerSocket;
+  /** Recebe cada mensagem do servidor depois que ela foi aplicada ao store (ex.: fila de tradução). */
+  onServerMessage?: (message: ServerMessage) => void;
+  /** Gera o requestId de cada pedido de sugestão (padrão: crypto.randomUUID). */
+  newRequestId?: () => string;
 }
 
 interface Run {
@@ -53,6 +70,8 @@ interface Run {
   wasOpen: boolean;
   statsTimer: ReturnType<typeof setInterval> | null;
   startTimer: ReturnType<typeof setTimeout> | null;
+  stopping: boolean;
+  stopTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /** Rejeita após `ms`; uma captura que chegue depois do prazo é parada imediatamente. */
@@ -100,7 +119,7 @@ export class SessionController {
 
   async start(params: StartParams): Promise<void> {
     if (this.running) return;
-    const run: Run = { tab: null, mic: null, socket: null, sender: null, wasOpen: false, statsTimer: null, startTimer: null };
+    const run: Run = { tab: null, mic: null, socket: null, sender: null, wasOpen: false, statsTimer: null, startTimer: null, stopping: false, stopTimer: null };
     this.running = run;
     this.deps.store.dispatch({ type: "starting" });
 
@@ -143,7 +162,14 @@ export class SessionController {
       socket = this.deps.openSocket(params.serverUrl, {
         onOpen: () => {
           run.wasOpen = true;
-          socket.sendJson({ type: "session.start", token: params.token, mode: params.mode, context: params.context });
+          socket.sendJson({
+            type: "session.start",
+            token: params.token,
+            mode: params.mode,
+            context: params.context,
+            profile: params.profile,
+            job: params.job,
+          });
         },
         onMessage: (message) => this.onServerMessage(run, message),
         onClose: (code) => this.onSocketClose(run, code),
@@ -161,12 +187,41 @@ export class SessionController {
     }, STATS_INTERVAL_MS);
   }
 
+  /** Pede uma sugestão de resposta (para a pergunta escolhida, se houver); sem sessão iniciada, não faz nada. */
+  requestSuggestion(question?: SuggestionQuestion): void {
+    const run = this.running;
+    if (!run?.sender || run.stopping || !run.socket?.isOpen) return;
+    const requestId = (this.deps.newRequestId ?? (() => crypto.randomUUID()))();
+    run.socket.sendJson(question ? { type: "suggest.request", requestId, question } : { type: "suggest.request", requestId });
+  }
+
+  /** Mudanças de modo, contexto, currículo ou vaga durante a sessão. */
+  update(changes: SessionSettingsChanges): void {
+    const run = this.running;
+    if (!run?.sender || run.stopping || !run.socket?.isOpen) return;
+    run.socket.sendJson({ type: "session.update", ...changes });
+  }
+
   stop(): void {
     const run = this.running;
-    if (!run) return;
-    run.socket?.sendJson({ type: "session.stop" });
-    this.release(run);
-    this.deps.store.dispatch({ type: "stopped" });
+    if (!run || run.stopping) return;
+    if (!run.sender || !run.socket?.isOpen) {
+      // A sessão ainda não começou: não há o que finalizar no servidor.
+      run.socket?.sendJson({ type: "session.stop" });
+      this.release(run);
+      this.deps.store.dispatch({ type: "stopped" });
+      return;
+    }
+    // Para de capturar, mas continua recebendo as últimas falas até o servidor encerrar.
+    run.stopping = true;
+    this.releaseCaptures(run);
+    run.socket.sendJson({ type: "session.stop" });
+    this.deps.store.dispatch({ type: "stopping" });
+    run.stopTimer = setTimeout(() => {
+      if (this.running !== run) return;
+      this.release(run);
+      this.deps.store.dispatch({ type: "stopped" });
+    }, STOP_TIMEOUT_MS);
   }
 
   private onServerMessage(run: Run, message: ServerMessage): void {
@@ -178,17 +233,18 @@ export class SessionController {
       run.sender = new FrameSender(run.socket);
     }
     this.deps.store.dispatch({ type: "server", message });
+    this.deps.onServerMessage?.(message);
   }
 
   private onSocketClose(run: Run, code: number): void {
     if (this.running !== run) return;
     this.release(run);
-    if (code === CLOSE_CODES.sessionEnded) this.deps.store.dispatch({ type: "stopped" });
+    if (run.stopping || code === CLOSE_CODES.sessionEnded) this.deps.store.dispatch({ type: "stopped" });
     else this.deps.store.dispatch({ type: "failed", message: describeClose(code, run.wasOpen) });
   }
 
   private onCaptureEnded(run: Run, channel: Channel): void {
-    if (this.running !== run) return;
+    if (this.running !== run || run.stopping) return;
     if (channel === "them") {
       run.socket?.sendJson({ type: "session.stop" });
       this.fail(run, "A captura da aba terminou (aba fechada ou compartilhamento encerrado).");
@@ -204,17 +260,23 @@ export class SessionController {
     this.deps.store.dispatch({ type: "failed", message });
   }
 
-  private release(run: Run): void {
-    if (this.running === run) this.running = null;
+  private releaseCaptures(run: Run): void {
     if (run.statsTimer) clearInterval(run.statsTimer);
     run.statsTimer = null;
-    if (run.startTimer) clearTimeout(run.startTimer);
-    run.startTimer = null;
     run.tab?.stop();
     run.tab = null;
     run.mic?.stop();
     run.mic = null;
     run.sender = null;
+  }
+
+  private release(run: Run): void {
+    if (this.running === run) this.running = null;
+    if (run.startTimer) clearTimeout(run.startTimer);
+    run.startTimer = null;
+    if (run.stopTimer) clearTimeout(run.stopTimer);
+    run.stopTimer = null;
+    this.releaseCaptures(run);
     run.socket?.close();
     run.socket = null;
   }

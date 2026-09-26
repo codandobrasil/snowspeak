@@ -15,4 +15,8 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ALLOWED_ORIGINS: "chrome-extension://x" })).toThrow(/ACCESS_KEYS/);
     expect(() => loadConfig({ ACCESS_KEYS: "a" })).toThrow(/ALLOWED_ORIGINS/);
   });
+  it("lê a chave do Deepgram e trata vazio como ausente", () => {
+    expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: " dg " }).deepgramApiKey).toBe("dg");
+    expect(loadConfig({ ACCESS_KEYS: "a", ALLOWED_ORIGINS: "o", DEEPGRAM_API_KEY: "" }).deepgramApiKey).toBeNull();
+  });
 });
