@@ -105,18 +105,18 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] A sugestão aparece logo abaixo da pergunta a que responde, e essa pergunta fica marcada.
 - [x] Clicar numa pergunta já terminada do entrevistador (ou Tab + Enter) pede a resposta para ela, mesmo depois de a conversa seguir.
 - [x] Com o painel estreito, os blocos ocupam quase toda a largura, encostados no seu lado.
-- [ ] **Microfone** desliga o envio da sua voz: o botão fica vermelho ("Microfone desligado"), a coluna Você para de receber falas e a legenda do entrevistador segue normal. Clicar de novo religa.
+- [x] **Microfone** desliga o envio da sua voz: o botão fica vermelho ("Microfone desligado"), a coluna Você para de receber falas e a legenda do entrevistador segue normal. Clicar de novo religa.
 - [ ] Repetir numa chamada real do Google Meet.
 
 ## Marco 2 — roteiro de validação (reconexão)
 
 Ponha `DEV_ENDPOINTS=1` no `apps/server/.env` e reinicie o servidor.
 
-- [ ] No meio da sessão, `curl -X POST localhost:8787/dev/drop-sockets`: o painel mostra "Reconectando…" por um instante e volta para "Capturando"; a legenda anterior continua e as falas seguem aparecendo.
-- [ ] A fala que estava em andamento na queda aparece como "fala interrompida"; a seguinte ganha um bloco novo, sem repetir texto.
-- [ ] Uma sugestão pedida logo antes da queda aparece depois da volta.
-- [ ] Parar o servidor e esperar mais de 60 s: aparece "A conexão ficou fora por muito tempo e a sessão foi encerrada.", a captura é liberada e a legenda continua visível.
-- [ ] Reiniciar o servidor no meio da sessão: aparece a mesma mensagem (as sessões vivem na memória do servidor).
-- [ ] Clicar em Parar durante "Reconectando…": Parado, sem captura.
-- [ ] Iniciar uma sessão em outro perfil do Chrome com a mesma chave: a primeira mostra "Sessão encerrada: foi iniciada em outro lugar."
-- [ ] Com o servidor em outra máquina, desligar o Wi-Fi por ~10 s e religar: a sessão volta sozinha.
+- [x] No meio da sessão, `curl -X POST localhost:8787/dev/drop-sockets`: o painel mostra "Reconectando…" por um instante e volta para "Capturando"; a legenda anterior continua e as falas seguem aparecendo.
+- [x] A fala que estava em andamento na queda aparece como "fala interrompida"; a seguinte ganha um bloco novo, sem repetir texto.
+- [x] Uma sugestão pedida logo antes da queda aparece depois da volta.
+- [x] Parar o servidor e esperar mais de 60 s: aparece "A conexão ficou fora por muito tempo e a sessão foi encerrada.", a captura é liberada e a legenda continua visível.
+- [x] Reiniciar o servidor no meio da sessão: aparece a mesma mensagem (as sessões vivem na memória do servidor).
+- [x] Clicar em Parar durante "Reconectando…": Parado, sem captura.
+- [x] Iniciar uma sessão em outro perfil do Chrome com a mesma chave: a primeira mostra "Sessão encerrada: foi iniciada em outro lugar."
+- [x] Com o servidor em outra máquina, desligar o Wi-Fi por ~10 s e religar: a sessão volta sozinha.
