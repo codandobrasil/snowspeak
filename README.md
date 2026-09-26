@@ -3,7 +3,7 @@
 Legendas EN→PT-BR em tempo real e sugestões de resposta para chamadas no navegador.
 
 - Spec: `docs/superpowers/specs/2026-09-25-snowspeak-realtime-engine-design.md`
-- Plano do marco atual: `docs/superpowers/plans/2026-09-25-marco-1-validacao-chrome.md`
+- Planos: `docs/superpowers/plans/` (marco 1, marcos 3 e 4, marco 5)
 
 ## Requisitos
 
@@ -101,8 +101,8 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] Chave do OpenRouter errada (troque no `.env` e reinicie o servidor): o cartão mostra "serviço de IA indisponível" e a legenda segue normal.
 - [x] Parar durante uma sugestão: nada fica gerando.
 - [x] **Limpar** apaga a legenda e a sugestão prontas; a fala em andamento continua.
-- [ ] Durante a captura, a legenda aparece em duas colunas: Entrevistador à esquerda; Você e as sugestões à direita, na ordem da conversa.
-- [ ] A sugestão aparece logo abaixo da pergunta a que responde, e essa pergunta fica marcada.
-- [ ] Clicar numa pergunta já terminada do entrevistador (ou Tab + Enter) pede a resposta para ela, mesmo depois de a conversa seguir.
-- [ ] Com o painel estreito, os blocos ocupam quase toda a largura, encostados no seu lado.
+- [x] Durante a captura, a legenda aparece em duas colunas: Entrevistador à esquerda; Você e as sugestões à direita, na ordem da conversa.
+- [x] A sugestão aparece logo abaixo da pergunta a que responde, e essa pergunta fica marcada.
+- [x] Clicar numa pergunta já terminada do entrevistador (ou Tab + Enter) pede a resposta para ela, mesmo depois de a conversa seguir.
+- [x] Com o painel estreito, os blocos ocupam quase toda a largura, encostados no seu lado.
 - [ ] Repetir numa chamada real do Google Meet.
