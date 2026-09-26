@@ -75,29 +75,30 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 
 ## Marcos 3 e 4 — roteiro de validação (com a chave do Deepgram)
 
-- [ ] O log do servidor mostra `STT: Deepgram · tradução: no Chrome do usuário`.
-- [ ] Na primeira vez, Iniciar mostra "Baixando o tradutor do Chrome… X%" (só se o modelo ainda não estiver instalado), com o botão "Continuar só em inglês".
-- [ ] Numa aba com um vídeo em inglês (entrevista, podcast), o inglês aparece enquanto a pessoa fala, primeiro em cinza (parcial) e depois firme.
-- [ ] O português aparece abaixo de cada frase logo depois que ela termina.
-- [ ] A tradução soa como português do Brasil natural (anotar exemplos bons e ruins).
-- [ ] Fala longa sem pausa: a tradução aparece aos poucos (a cada frase ou a cada ~2,5 s), sem esperar o fim.
-- [ ] Falando no microfone (inglês ou português), a fala aparece como "Você", sem tradução.
-- [ ] Clicar em Parar no meio de uma frase: status "Finalizando…", as últimas palavras aparecem e são traduzidas, depois "Parado".
-- [ ] Parar durante o download do tradutor cancela o início.
-- [ ] Fechar e reabrir o painel mantém a legenda.
-- [ ] Chave do Deepgram errada (troque no `.env` e reinicie o servidor): aparece "A transcrição parou…" e a sessão segue capturando.
-- [ ] Ao parar, o log do servidor mostra a latência estimada do STT (`latência estimada do STT (segmento final) p50 …`).
+- [x] O log do servidor mostra `STT: Deepgram · tradução: no Chrome do usuário`.
+- [x] Na primeira vez, Iniciar mostra "Baixando o tradutor do Chrome… X%" (só se o modelo ainda não estiver instalado), com o botão "Continuar só em inglês".
+- [x] Numa aba com um vídeo em inglês (entrevista, podcast), o inglês aparece enquanto a pessoa fala, primeiro em cinza (parcial) e depois firme.
+- [x] O português aparece abaixo de cada frase logo depois que ela termina.
+- [x] A tradução soa como português do Brasil natural (anotar exemplos bons e ruins).
+- [x] Fala longa sem pausa: a tradução aparece aos poucos (a cada frase ou a cada ~2,5 s), sem esperar o fim.
+- [x] Falando no microfone (inglês ou português), a fala aparece como "Você", sem tradução.
+- [x] Clicar em Parar no meio de uma frase: status "Finalizando…", as últimas palavras aparecem e são traduzidas, depois "Parado".
+- [x] Parar durante o download do tradutor cancela o início.
+- [x] Fechar e reabrir o painel mantém a legenda.
+- [x] Chave do Deepgram errada (troque no `.env` e reinicie o servidor): aparece "A transcrição parou…" e a sessão segue capturando.
+- [x] Ao parar, o log do servidor mostra a latência estimada do STT (`latência estimada do STT (segmento final) p50 …`).
 - [ ] Repetir numa chamada real do Google Meet.
 
 ## Marco 5 — roteiro de validação (com a chave do OpenRouter)
 
-- [ ] O log do servidor mostra `sugestões: OpenRouter (anthropic/claude-haiku-4.5)`.
-- [ ] Nas configurações, preencher o currículo e a vaga e escolher o modo Entrevista (os campos ficam salvos).
-- [ ] Num vídeo de entrevista em inglês, quando a entrevistadora termina uma pergunta, a sugestão aparece sozinha em ~1–2 s no rodapé: curta, em inglês, com o português abaixo.
-- [ ] A sugestão usa o currículo (cita experiência real) e não inventa empresas ou números.
-- [ ] O botão "Sugerir resposta" e o atalho Alt+S pedem uma sugestão a qualquer momento.
-- [ ] Apertar Alt+S várias vezes rápido: aparece um aviso curto e fica uma sugestão só.
-- [ ] Duas perguntas seguidas: fica a sugestão da última.
-- [ ] Chave do OpenRouter errada (troque no `.env` e reinicie o servidor): o cartão mostra "serviço de IA indisponível" e a legenda segue normal.
-- [ ] Parar durante uma sugestão: nada fica gerando.
+- [x] O log do servidor mostra `sugestões: OpenRouter (anthropic/claude-haiku-4.5)`.
+- [x] Nas configurações, preencher o currículo e a vaga e escolher o modo Entrevista (os campos ficam salvos).
+- [x] Num vídeo de entrevista em inglês, quando a entrevistadora termina uma pergunta, a sugestão aparece sozinha em ~1–2 s no rodapé: curta, em inglês, com o português abaixo.
+- [x] A sugestão usa o currículo (cita experiência real) e não inventa empresas ou números.
+- [x] O botão "Sugerir resposta" e o atalho Alt+S pedem uma sugestão a qualquer momento.
+- [x] Apertar Alt+S várias vezes rápido: aparece um aviso curto e fica uma sugestão só.
+- [x] Duas perguntas seguidas: fica a sugestão da última.
+- [x] Chave do OpenRouter errada (troque no `.env` e reinicie o servidor): o cartão mostra "serviço de IA indisponível" e a legenda segue normal.
+- [x] Parar durante uma sugestão: nada fica gerando.
+- [x] **Limpar** apaga a legenda e a sugestão prontas; a fala em andamento continua.
 - [ ] Repetir numa chamada real do Google Meet.
