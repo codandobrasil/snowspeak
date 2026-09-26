@@ -61,4 +61,21 @@ describe("ChannelPipeline", () => {
     pipeline.reopenStt();
     expect(hub.channel("them")).toBe(suspended);
   });
+
+  it("ignora resultados atrasados do STT antigo depois da suspensão e da retomada", async () => {
+    const { hub, events, pipeline } = setup();
+    await pipeline.suspend();
+    const old = hub.channel("them");
+    pipeline.reopenStt();
+    const fresh = hub.channel("them");
+    const before = events.length;
+    // O Deepgram ainda entrega o que tinha no stream fechado, com tempos da linha do tempo antiga.
+    old.emit({ kind: "segment", text: "Late words.", start: 44, end: 45, speechFinal: true, fromFinalize: false });
+    expect(events.length).toBe(before);
+    // A fala nova fecha pelo UtteranceEnd do stream novo, com tempos baixos.
+    fresh.emit({ kind: "segment", text: "New", start: 0.1, end: 0.5, speechFinal: false, fromFinalize: false });
+    fresh.emit({ kind: "utteranceEnd", lastWordEnd: 0.5 });
+    expect(events.at(-1)).toMatchObject({ type: "utterance.end", interrupted: false });
+  });
 });
+

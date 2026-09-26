@@ -51,10 +51,17 @@ export class ChannelPipeline {
   }
 
   private openStt(): SttStream {
-    return this.deps.sttFactory(this.deps.channel, {
-      onResult: (result) => this.onSttResult(result),
-      onError: (error) => this.onSttError(error),
+    // Só o stream atual fala com o montador: resultados atrasados de um stream já fechado
+    // (ex.: Deepgram esvaziando depois do CloseStream) têm tempos de outra linha do tempo.
+    const stream: SttStream = this.deps.sttFactory(this.deps.channel, {
+      onResult: (result) => {
+        if (this.stt === stream) this.onSttResult(result);
+      },
+      onError: (error) => {
+        if (this.stt === stream) this.onSttError(error);
+      },
     });
+    return stream;
   }
 
   acceptFrame(frame: AudioFrame): boolean {
