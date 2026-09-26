@@ -13,6 +13,8 @@ export interface SuggestionContext {
   profile: string;
   job: string;
   transcript: TranscriptLine[];
+  /** Pergunta escolhida pelo usuário no painel. */
+  question?: string;
 }
 
 export interface ChatMessage {
@@ -30,6 +32,7 @@ const MODE_GUIDANCE: Record<Mode, string> = {
 
 const SYSTEM_RULES = `You help a Brazilian user reply in real time during a live English conversation.
 Write the reply the user should say next, in the first person, answering the other person's last question or point.
+When a QUESTION TO ANSWER is given, answer exactly that question.
 Rules:
 - 2 to 3 short sentences in simple, natural spoken English that is easy to read aloud.
 - Facts about the user come only from the PROFILE. Use them as written: never add details the PROFILE does not state, such as team sizes, metrics, percentages, results, dates, tools, downtime or outcomes.
@@ -47,6 +50,7 @@ export function buildSuggestionMessages(ctx: SuggestionContext): ChatMessage[] {
     .map((line) => `${line.channel === "them" ? "THEM" : "ME"}: ${line.text}`)
     .join("\n");
   sections.push(`CONVERSATION (most recent last):\n${conversation || "(nothing yet)"}`);
+  if (ctx.question?.trim()) sections.push(`QUESTION TO ANSWER:\n${ctx.question.trim()}`);
   sections.push("Write the suggested reply now.");
   return [
     { role: "system", content: `${SYSTEM_RULES}\n\n${MODE_GUIDANCE[ctx.mode]}` },

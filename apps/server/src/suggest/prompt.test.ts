@@ -56,6 +56,16 @@ describe("buildSuggestionMessages", () => {
     expect(user).toContain("line 29");
   });
 
+  it("destaca a pergunta escolhida pelo usuário", () => {
+    const [system, user] = buildSuggestionMessages({ ...base, question: "Why do you want to work here?" });
+    expect(user?.content).toContain("QUESTION TO ANSWER:\nWhy do you want to work here?");
+    expect(system?.content).toContain("QUESTION TO ANSWER");
+  });
+
+  it("sem pergunta escolhida, não há a seção", () => {
+    expect(buildSuggestionMessages(base)[1]?.content).not.toContain("QUESTION TO ANSWER:");
+  });
+
   it("muda a orientação conforme o modo", () => {
     const sales = buildSuggestionMessages({ ...base, mode: "sales" })[0]?.content ?? "";
     expect(sales.toLowerCase()).toContain("sales");

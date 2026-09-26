@@ -55,6 +55,32 @@ describe("SuggestionEngine", () => {
     ]);
   });
 
+  it("responde à pergunta escolhida, com a conversa só até ela", async () => {
+    const t = setup(answer("Sure.", "Claro."));
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "Why fintech", interrupted: false });
+    t.engine.addUtterance({ channel: "me", utteranceId: "me-1", text: "Because payments matter.", interrupted: false });
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "Great, next topic", interrupted: false });
+    t.engine.request("r1", { utteranceId: "them-1", text: "Why fintech" });
+    await settle();
+    expect(t.of("r1")[0]).toEqual({ type: "suggestion.started", requestId: "r1", trigger: "manual", basedOnUtteranceId: "them-1" });
+    const user = t.suggester.calls[0]?.[1]?.content ?? "";
+    expect(user).toContain("QUESTION TO ANSWER:\nWhy fintech");
+    expect(user).toContain("THEM: Why fintech");
+    expect(user).not.toContain("Because payments matter.");
+    expect(user).not.toContain("next topic");
+  });
+
+  it("pergunta escolhida fora da janela: usa o texto enviado e a conversa recente", async () => {
+    const t = setup(answer("Sure.", "Claro."));
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-9", text: "Recent line", interrupted: false });
+    t.engine.request("r1", { utteranceId: "them-1", text: "An old question?" });
+    await settle();
+    expect(t.of("r1")[0]).toMatchObject({ basedOnUtteranceId: "them-1" });
+    const user = t.suggester.calls[0]?.[1]?.content ?? "";
+    expect(user).toContain("QUESTION TO ANSWER:\nAn old question?");
+    expect(user).toContain("THEM: Recent line");
+  });
+
   it("gera sozinho quando o participante termina uma pergunta", async () => {
     const t = setup(answer("I build APIs.", "Eu construo APIs."));
     t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "Tell me about yourself.", interrupted: false });

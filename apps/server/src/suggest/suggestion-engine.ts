@@ -56,7 +56,8 @@ export class SuggestionEngine {
     this.start(`auto-${this.autoCount}`, "auto", utterance.utteranceId);
   }
 
-  request(requestId: string): void {
+  /** Pedido do usuário; com `question`, responde à pergunta escolhida no painel em vez da última. */
+  request(requestId: string, question?: { utteranceId: string; text: string }): void {
     if (this.closed || !this.accepting || this.seen.has(requestId)) return;
     if (this.inflight?.trigger === "manual") {
       this.seen.add(requestId);
@@ -70,6 +71,10 @@ export class SuggestionEngine {
       return;
     }
     this.lastManualAt = now;
+    if (question) {
+      this.start(requestId, "manual", question.utteranceId, question);
+      return;
+    }
     const lastThem = [...this.transcript].reverse().find((line) => line.channel === "them");
     this.start(requestId, "manual", lastThem?.utteranceId ?? null);
   }
@@ -96,7 +101,7 @@ export class SuggestionEngine {
     generation.controller.abort(new Error(reason));
   }
 
-  private start(requestId: string, trigger: SuggestionTrigger, basedOnUtteranceId: string | null): void {
+  private start(requestId: string, trigger: SuggestionTrigger, basedOnUtteranceId: string | null, question?: { utteranceId: string; text: string }): void {
     this.cancel("cancelled");
     this.seen.add(requestId);
     const generation: Generation = { requestId, trigger, controller: new AbortController(), reason: null, reported: false };
@@ -104,7 +109,14 @@ export class SuggestionEngine {
     this.deps.emit({ type: "suggestion.started", requestId, trigger, basedOnUtteranceId });
 
     // Congela contexto e conversa no instante do pedido.
-    const messages = buildSuggestionMessages({ ...this.deps.settings(), transcript: this.transcript.map(({ channel, text }) => ({ channel, text })) });
+    // Pergunta escolhida ainda na janela: a conversa vai só até ela; fora da janela, vai a conversa recente.
+    const index = question ? this.transcript.findIndex((line) => line.utteranceId === question.utteranceId) : -1;
+    const lines = index >= 0 ? this.transcript.slice(0, index + 1) : this.transcript;
+    const messages = buildSuggestionMessages({
+      ...this.deps.settings(),
+      transcript: lines.map(({ channel, text }) => ({ channel, text })),
+      question: question?.text,
+    });
     const timer = setTimeout(() => {
       if (this.inflight === generation) this.cancel("timeout");
     }, this.deps.timeoutMs ?? SUGGESTION_TIMEOUT_MS);

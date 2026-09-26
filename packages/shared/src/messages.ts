@@ -6,6 +6,7 @@ export type Mode = (typeof MODES)[number];
 export const MAX_CONTEXT_CHARS = 2_000;
 export const MAX_PROFILE_CHARS = 8_000;
 export const MAX_JOB_CHARS = 8_000;
+export const MAX_QUESTION_CHARS = 2_000;
 
 export const CLOSE_CODES = {
   protocolError: 4400,
@@ -41,7 +42,12 @@ const clientMessageSchema = z.discriminatedUnion("type", [
     profile: z.string().max(MAX_PROFILE_CHARS).optional(),
     job: z.string().max(MAX_JOB_CHARS).optional(),
   }),
-  z.object({ type: z.literal("suggest.request"), requestId: z.string().min(1).max(64) }),
+  z.object({
+    type: z.literal("suggest.request"),
+    requestId: z.string().min(1).max(64),
+    /** Pergunta que o usuário escolheu no painel; sem ela, a sugestão responde à última fala dos participantes. */
+    question: z.object({ utteranceId: z.string().min(1).max(64), text: z.string().min(1).max(MAX_QUESTION_CHARS) }).optional(),
+  }),
   z.object({ type: z.literal("session.stop") }),
 ]);
 

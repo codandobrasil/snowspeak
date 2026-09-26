@@ -63,8 +63,8 @@ export class Session {
     this.engine.stopAccepting();
   }
 
-  requestSuggestion(requestId: string): void {
-    this.engine.request(requestId);
+  requestSuggestion(requestId: string, question?: { utteranceId: string; text: string }): void {
+    this.engine.request(requestId, question);
   }
 
   async drain(): Promise<void> {

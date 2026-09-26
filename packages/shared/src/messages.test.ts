@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_CONTEXT_CHARS, MAX_PROFILE_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
+import { MAX_CONTEXT_CHARS, MAX_PROFILE_CHARS, MAX_QUESTION_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
 
 describe("parseClientMessage", () => {
   it("aceita session.start válido", () => {
@@ -99,6 +99,15 @@ describe("mensagens de sugestão", () => {
     expect(parseClientMessage('{"type":"session.update","job":"Nova vaga"}')).toEqual({ type: "session.update", job: "Nova vaga" });
     expect(parseClientMessage('{"type":"suggest.request","requestId":"abc"}')).toEqual({ type: "suggest.request", requestId: "abc" });
     expect(parseClientMessage('{"type":"suggest.request","requestId":""}')).toBeNull();
+  });
+
+  it("aceita suggest.request com a pergunta escolhida e recusa pergunta inválida", () => {
+    const question = { utteranceId: "them-3", text: "Why fintech?" };
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question }))).toEqual({ type: "suggest.request", requestId: "a", question });
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question: { utteranceId: "", text: "x" } }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question: { utteranceId: "them-3", text: "" } }))).toBeNull();
+    const tooLong = "x".repeat(MAX_QUESTION_CHARS + 1);
+    expect(parseClientMessage(JSON.stringify({ type: "suggest.request", requestId: "a", question: { utteranceId: "them-3", text: tooLong } }))).toBeNull();
   });
 
   it("aceita os eventos de sugestão", () => {

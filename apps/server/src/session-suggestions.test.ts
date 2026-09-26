@@ -62,6 +62,15 @@ describe("sugestões de ponta a ponta", () => {
     expect(client.messages.find((m) => m.type === "suggestion.started")).toMatchObject({ requestId: "r1", trigger: "manual" });
   });
 
+  it("suggest.request com pergunta escolhida responde a ela", async () => {
+    const { calls } = await setup();
+    const client = await TestClient.started(gateway.url);
+    client.sendJson({ type: "suggest.request", requestId: "r1", question: { utteranceId: "them-7", text: "Why this company?" } });
+    await client.waitFor((m) => m.type === "suggestion.done");
+    expect(client.messages.find((m) => m.type === "suggestion.started")).toMatchObject({ requestId: "r1", basedOnUtteranceId: "them-7" });
+    expect(calls[0]?.[1]?.content).toContain("QUESTION TO ANSWER:\nWhy this company?");
+  });
+
   it("session.update muda o currículo usado nas próximas sugestões", async () => {
     const { calls } = await setup();
     const client = await TestClient.connect(gateway.url);

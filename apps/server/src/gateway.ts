@@ -122,7 +122,7 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
     }
 
     if (message?.type === "suggest.request") {
-      session.requestSuggestion(message.requestId);
+      session.requestSuggestion(message.requestId, message.question);
       return;
     }
 
