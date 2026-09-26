@@ -392,3 +392,44 @@ describe("SessionController", () => {
     expect(socket.json.at(-1)).toEqual({ type: "session.update", job: "Staff Engineer" });
   });
 });
+
+describe("microfone desligado", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("não envia o áudio do microfone enquanto desligado e volta a enviar ao religar", async () => {
+    const t = setup();
+    const socket = await startRunning(t);
+    t.controller.setMicMuted(true);
+    expect(t.store.snapshot().micMuted).toBe(true);
+    t.emitFrame("me");
+    t.emitFrame("them");
+    expect(socket.binary.map((frame) => decodeFrame(new Uint8Array(frame)))).toMatchObject([{ ok: true, frame: { channel: "them" } }]);
+    t.controller.setMicMuted(false);
+    t.emitFrame("me");
+    expect(socket.binary).toHaveLength(2);
+    expect(t.store.snapshot().micMuted).toBe(false);
+  });
+
+  it("zera o nível do microfone e ignora o nível enquanto desligado", async () => {
+    const t = setup();
+    await startRunning(t);
+    t.store.dispatch({ type: "level", channel: "me", rms: 0.4 });
+    t.controller.setMicMuted(true);
+    expect(t.store.snapshot().channels.me.level).toBe(0);
+  });
+
+  it("sem sessão, não faz nada; nova sessão começa com o microfone ligado", async () => {
+    const t = setup();
+    t.controller.setMicMuted(true);
+    expect(t.store.snapshot().micMuted).toBe(false);
+    const socket = await startRunning(t);
+    t.controller.setMicMuted(true);
+    socket.serverClose(4410);
+    await t.controller.start(params);
+    t.sockets[1]!.open();
+    t.sockets[1]!.receive(started);
+    expect(t.store.snapshot().micMuted).toBe(false);
+  });
+});
+

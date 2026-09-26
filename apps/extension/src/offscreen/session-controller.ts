@@ -72,6 +72,8 @@ interface Run {
   startTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
   stopTimer: ReturnType<typeof setTimeout> | null;
+  /** Microfone desligado pelo usuário: nada do canal "me" é enviado. */
+  micMuted: boolean;
 }
 
 /** Rejeita após `ms`; uma captura que chegue depois do prazo é parada imediatamente. */
@@ -119,13 +121,17 @@ export class SessionController {
 
   async start(params: StartParams): Promise<void> {
     if (this.running) return;
-    const run: Run = { tab: null, mic: null, socket: null, sender: null, wasOpen: false, statsTimer: null, startTimer: null, stopping: false, stopTimer: null };
+    const run: Run = { tab: null, mic: null, socket: null, sender: null, wasOpen: false, statsTimer: null, startTimer: null, stopping: false, stopTimer: null, micMuted: false };
     this.running = run;
     this.deps.store.dispatch({ type: "starting" });
 
     const callbacks: CaptureCallbacks = {
-      onFrame: (channel, pcm) => run.sender?.push(channel, pcm),
+      onFrame: (channel, pcm) => {
+        if (channel === "me" && run.micMuted) return;
+        run.sender?.push(channel, pcm);
+      },
       onLevel: (channel, rms) => {
+        if (channel === "me" && run.micMuted) return;
         if (this.running === run) this.deps.store.dispatch({ type: "level", channel, rms });
       },
       onEnded: (channel) => this.onCaptureEnded(run, channel),
@@ -193,6 +199,14 @@ export class SessionController {
     if (!run?.sender || run.stopping || !run.socket?.isOpen) return;
     const requestId = (this.deps.newRequestId ?? (() => crypto.randomUUID()))();
     run.socket.sendJson(question ? { type: "suggest.request", requestId, question } : { type: "suggest.request", requestId });
+  }
+
+  /** Liga ou desliga o envio do microfone; o microfone continua aberto para religar na hora. */
+  setMicMuted(muted: boolean): void {
+    const run = this.running;
+    if (!run || run.stopping) return;
+    run.micMuted = muted;
+    this.deps.store.dispatch({ type: "mic-muted", muted });
   }
 
   /** Mudanças de modo, contexto, currículo ou vaga durante a sessão. */

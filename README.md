@@ -105,4 +105,5 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] A sugestão aparece logo abaixo da pergunta a que responde, e essa pergunta fica marcada.
 - [x] Clicar numa pergunta já terminada do entrevistador (ou Tab + Enter) pede a resposta para ela, mesmo depois de a conversa seguir.
 - [x] Com o painel estreito, os blocos ocupam quase toda a largura, encostados no seu lado.
+- [ ] **Microfone** desliga o envio da sua voz: o botão fica vermelho ("Microfone desligado"), a coluna Você para de receber falas e a legenda do entrevistador segue normal. Clicar de novo religa.
 - [ ] Repetir numa chamada real do Google Meet.

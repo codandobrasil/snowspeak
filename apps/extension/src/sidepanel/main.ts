@@ -53,6 +53,7 @@ const columnThem = byId<HTMLSpanElement>("column-them");
 const columnMe = byId<HTMLSpanElement>("column-me");
 const portugueseOnlyButton = byId<HTMLButtonElement>("portuguese-only");
 const clearButton = byId<HTMLButtonElement>("clear");
+const muteMicButton = byId<HTMLButtonElement>("mute-mic");
 const widthHint = byId<HTMLParagraphElement>("width-hint");
 const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
 
@@ -153,6 +154,9 @@ function render(): void {
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
   startButton.disabled = active || state.status === "stopping";
   stopButton.disabled = !active;
+  muteMicButton.setAttribute("aria-pressed", String(state.micMuted));
+  muteMicButton.textContent = state.micMuted ? "Microfone desligado" : "Microfone";
+  muteMicButton.disabled = state.mic !== "active" || state.status !== "running";
   clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";
@@ -341,6 +345,11 @@ stopButton.addEventListener("click", () => {
 
 suggestButton.addEventListener("click", () => {
   chrome.runtime.sendMessage({ target: "offscreen", type: "suggest" } satisfies RuntimeMessage).catch(() => undefined);
+});
+
+muteMicButton.addEventListener("click", () => {
+  const muted = !lastState.micMuted;
+  chrome.runtime.sendMessage({ target: "offscreen", type: "mute-mic", muted } satisfies RuntimeMessage).catch(() => undefined);
 });
 
 clearButton.addEventListener("click", () => {

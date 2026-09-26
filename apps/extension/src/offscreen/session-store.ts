@@ -49,6 +49,8 @@ export interface SessionState {
   notice: string | null;
   sessionId: string | null;
   mic: MicStatus;
+  /** O usuário desligou o microfone pelo painel: o áudio dele não sai do computador. */
+  micMuted: boolean;
   lastSeq: number;
   channels: Record<Channel, ChannelView>;
   captions: Caption[];
@@ -60,6 +62,7 @@ export interface SessionState {
 export type StoreAction =
   | { type: "starting" }
   | { type: "mic"; status: MicStatus }
+  | { type: "mic-muted"; muted: boolean }
   | { type: "level"; channel: Channel; rms: number }
   | { type: "stats"; stats: Record<Channel, ChannelStats> }
   | { type: "server"; message: ServerMessage }
@@ -85,6 +88,7 @@ export function initialState(): SessionState {
     notice: null,
     sessionId: null,
     mic: "unknown",
+    micMuted: false,
     lastSeq: 0,
     channels: { them: emptyChannel(), me: emptyChannel() },
     captions: [],
@@ -204,6 +208,8 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
       return { ...initialState(), status: "starting" };
     case "mic":
       return { ...state, mic: action.status };
+    case "mic-muted":
+      return action.muted ? withChannel({ ...state, micMuted: true }, "me", { level: 0 }) : { ...state, micMuted: false };
     case "level":
       return withChannel(state, action.channel, { level: action.rms });
     case "stats":
