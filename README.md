@@ -107,3 +107,16 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] Com o painel estreito, os blocos ocupam quase toda a largura, encostados no seu lado.
 - [ ] **Microfone** desliga o envio da sua voz: o botão fica vermelho ("Microfone desligado"), a coluna Você para de receber falas e a legenda do entrevistador segue normal. Clicar de novo religa.
 - [ ] Repetir numa chamada real do Google Meet.
+
+## Marco 2 — roteiro de validação (reconexão)
+
+Ponha `DEV_ENDPOINTS=1` no `apps/server/.env` e reinicie o servidor.
+
+- [ ] No meio da sessão, `curl -X POST localhost:8787/dev/drop-sockets`: o painel mostra "Reconectando…" por um instante e volta para "Capturando"; a legenda anterior continua e as falas seguem aparecendo.
+- [ ] A fala que estava em andamento na queda aparece como "fala interrompida"; a seguinte ganha um bloco novo, sem repetir texto.
+- [ ] Uma sugestão pedida logo antes da queda aparece depois da volta.
+- [ ] Parar o servidor e esperar mais de 60 s: aparece "A conexão ficou fora por muito tempo e a sessão foi encerrada.", a captura é liberada e a legenda continua visível.
+- [ ] Reiniciar o servidor no meio da sessão: aparece a mesma mensagem (as sessões vivem na memória do servidor).
+- [ ] Clicar em Parar durante "Reconectando…": Parado, sem captura.
+- [ ] Iniciar uma sessão em outro perfil do Chrome com a mesma chave: a primeira mostra "Sessão encerrada: foi iniciada em outro lugar."
+- [ ] Com o servidor em outra máquina, desligar o Wi-Fi por ~10 s e religar: a sessão volta sozinha.
