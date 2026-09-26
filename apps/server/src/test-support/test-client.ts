@@ -9,12 +9,18 @@ export function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
   return {
     port: 0,
     host: "127.0.0.1",
-    accessKeys: new Set(["key-1"]),
+    accessKeys: new Set(["key-1", "key-2"]),
     allowedOrigins: new Set([ORIGIN]),
     authTimeoutMs: 200,
     deepgramApiKey: null,
     openRouterApiKey: null,
     suggestionModel: "test-model",
+    resumeWindowMs: 300,
+    eventBufferSize: 2_000,
+    // Longos por padrão: heartbeats e pings não aparecem nos testes que não tratam disso.
+    heartbeatIntervalMs: 60_000,
+    pingIntervalMs: 60_000,
+    devEndpoints: false,
     ...overrides,
   };
 }
@@ -44,15 +50,20 @@ export class TestClient {
     return new TestClient(ws);
   }
 
-  static async started(url: string): Promise<TestClient> {
+  static async started(url: string, token = "key-1"): Promise<TestClient> {
     const client = await TestClient.connect(url);
-    client.sendJson(START);
+    client.sendJson({ ...START, token });
     await client.waitFor((m) => m.type === "session.started");
     return client;
   }
 
   drop(): void {
     this.ws.terminate();
+  }
+
+  /** Maior seq recebido (o que o cliente real mandaria em session.resume). */
+  lastSeq(): number {
+    return this.messages.reduce((max, m) => ("seq" in m ? Math.max(max, m.seq) : max), 0);
   }
 
   types(): string[] {

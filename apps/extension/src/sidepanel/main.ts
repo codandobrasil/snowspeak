@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<SessionStatus, string> = {
   idle: "Parado",
   starting: "Iniciando…",
   running: "Capturando",
+  reconnecting: "Reconectando…",
   stopping: "Finalizando…",
   error: "Erro",
 };
@@ -53,6 +54,7 @@ const columnThem = byId<HTMLSpanElement>("column-them");
 const columnMe = byId<HTMLSpanElement>("column-me");
 const portugueseOnlyButton = byId<HTMLButtonElement>("portuguese-only");
 const clearButton = byId<HTMLButtonElement>("clear");
+const muteMicButton = byId<HTMLButtonElement>("mute-mic");
 const widthHint = byId<HTMLParagraphElement>("width-hint");
 const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
 
@@ -147,12 +149,15 @@ function renderCaptions(state: SessionState, suggestionVisible: boolean): void {
 
 function render(): void {
   const state = lastState;
-  const active = pendingStart || state.status === "starting" || state.status === "running";
+  const active = pendingStart || state.status === "starting" || state.status === "running" || state.status === "reconnecting";
   document.body.classList.toggle("capturing", isCaptureMode(state.status, pendingStart));
   portugueseOnlyButton.setAttribute("aria-pressed", String(portugueseOnly));
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
   startButton.disabled = active || state.status === "stopping";
   stopButton.disabled = !active;
+  muteMicButton.setAttribute("aria-pressed", String(state.micMuted));
+  muteMicButton.textContent = state.micMuted ? "Microfone desligado" : "Microfone";
+  muteMicButton.disabled = state.mic !== "active" || (state.status !== "running" && state.status !== "reconnecting");
   clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";
@@ -341,6 +346,11 @@ stopButton.addEventListener("click", () => {
 
 suggestButton.addEventListener("click", () => {
   chrome.runtime.sendMessage({ target: "offscreen", type: "suggest" } satisfies RuntimeMessage).catch(() => undefined);
+});
+
+muteMicButton.addEventListener("click", () => {
+  const muted = !lastState.micMuted;
+  chrome.runtime.sendMessage({ target: "offscreen", type: "mute-mic", muted } satisfies RuntimeMessage).catch(() => undefined);
 });
 
 clearButton.addEventListener("click", () => {

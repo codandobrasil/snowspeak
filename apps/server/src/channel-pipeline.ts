@@ -27,7 +27,8 @@ export class ChannelPipeline {
   private readonly sequencer = new ChannelSequencer();
   private readonly assembler: UtteranceAssembler;
   private readonly splitter: SentenceSplitter | null;
-  private readonly clock = new ForwardClock();
+  private clock = new ForwardClock();
+  private closed = false;
   private stt: SttStream | null;
   private audioForwarded = false;
   private onFinalizeSettled: (() => void) | null = null;
@@ -46,10 +47,21 @@ export class ChannelPipeline {
           }),
         )
       : null;
-    this.stt = deps.sttFactory(deps.channel, {
-      onResult: (result) => this.onSttResult(result),
-      onError: (error) => this.onSttError(error),
+    this.stt = this.openStt();
+  }
+
+  private openStt(): SttStream {
+    // Só o stream atual fala com o montador: resultados atrasados de um stream já fechado
+    // (ex.: Deepgram esvaziando depois do CloseStream) têm tempos de outra linha do tempo.
+    const stream: SttStream = this.deps.sttFactory(this.deps.channel, {
+      onResult: (result) => {
+        if (this.stt === stream) this.onSttResult(result);
+      },
+      onError: (error) => {
+        if (this.stt === stream) this.onSttError(error);
+      },
     });
+    return stream;
   }
 
   acceptFrame(frame: AudioFrame): boolean {
@@ -86,7 +98,24 @@ export class ChannelPipeline {
     this.handleAll(this.assembler.forceClose());
   }
 
+  /** Queda do socket: entrega o que o STT tiver, fecha a fala aberta e desliga o STT até a retomada. */
+  async suspend(): Promise<void> {
+    await this.drain();
+    this.stt?.close();
+    this.stt = null;
+    this.audioForwarded = false;
+  }
+
+  /** Retomada: STT novo, cuja linha do tempo recomeça do zero. Falas e frases seguem a numeração. */
+  reopenStt(): void {
+    if (this.stt || this.closed) return;
+    this.clock = new ForwardClock();
+    this.assembler.resetTimeline();
+    this.stt = this.openStt();
+  }
+
   close(): void {
+    this.closed = true;
     this.splitter?.dispose();
     this.stt?.close();
     this.stt = null;

@@ -29,6 +29,7 @@ describe("isCaptureMode", () => {
     expect(isCaptureMode("starting", false)).toBe(true);
     expect(isCaptureMode("running", false)).toBe(true);
     expect(isCaptureMode("stopping", false)).toBe(true);
+    expect(isCaptureMode("reconnecting", false)).toBe(true);
     expect(isCaptureMode("idle", true)).toBe(true);
   });
 

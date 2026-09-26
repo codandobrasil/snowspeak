@@ -14,6 +14,16 @@ const segment = (text: string, start: number, end: number, flags: { speechFinal?
 const utteranceEnd = (lastWordEnd: number): SttResult => ({ kind: "utteranceEnd", lastWordEnd });
 
 describe("UtteranceAssembler", () => {
+  it("depois de resetTimeline, UtteranceEnd com tempos baixos fecha a fala nova", () => {
+    const assembler = new UtteranceAssembler("them");
+    assembler.push({ kind: "segment", text: "First.", start: 10, end: 12, speechFinal: true, fromFinalize: false });
+    assembler.resetTimeline();
+    assembler.push({ kind: "segment", text: "Second", start: 0.2, end: 0.8, speechFinal: false, fromFinalize: false });
+    expect(assembler.push({ kind: "utteranceEnd", lastWordEnd: 0.8 })).toEqual([
+      { type: "utterance.end", utteranceId: "them-2", interrupted: false },
+    ]);
+  });
+
   it("parciais abrem a fala e mantêm o mesmo id", () => {
     const a = new UtteranceAssembler("them");
     expect(a.push(partial("hel"))).toEqual([{ type: "transcript.partial", utteranceId: "them-1", text: "hel" }]);

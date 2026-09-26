@@ -87,6 +87,9 @@ body.capturing .meters {
 
 .actions { align-items: center; flex-wrap: wrap; }
 .toggle[aria-pressed="true"] { background: var(--translation); color: #0b1a0b; border-color: var(--translation); }
+.mute { display: none; }
+body.capturing .mute { display: inline-block; }
+.mute[aria-pressed="true"] { background: var(--error); color: #2a0b0b; border-color: var(--error); }
 .dots { display: none; gap: 6px; margin-left: auto; }
 body.capturing .dots { display: inline-flex; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); opacity: 0.2; transition: opacity 120ms linear; }

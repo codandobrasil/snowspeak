@@ -11,7 +11,8 @@ function fakeController() {
   const stop = vi.fn(() => undefined);
   const requestSuggestion = vi.fn((_question?: object) => undefined);
   const update = vi.fn((_changes: object) => undefined);
-  return { start, stop, requestSuggestion, update } satisfies OffscreenController;
+  const setMicMuted = vi.fn((_muted: boolean) => undefined);
+  return { start, stop, requestSuggestion, update, setMicMuted } satisfies OffscreenController;
 }
 
 describe("handleOffscreenMessage", () => {
@@ -42,6 +43,12 @@ describe("handleOffscreenMessage", () => {
     expect(store.snapshot().suggestion).not.toBeNull();
     expect(handleOffscreenMessage({ target: "offscreen", type: "clear" }, fakeController(), store)).toEqual({ ok: true });
     expect(store.snapshot().suggestion).toBeNull();
+  });
+
+  it("liga e desliga o microfone", () => {
+    const controller = fakeController();
+    expect(handleOffscreenMessage({ target: "offscreen", type: "mute-mic", muted: true }, controller, new SessionStore())).toEqual({ ok: true });
+    expect(controller.setMicMuted).toHaveBeenCalledWith(true);
   });
 
   it("ignora mensagens destinadas a outros contextos", () => {
