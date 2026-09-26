@@ -101,4 +101,8 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] Chave do OpenRouter errada (troque no `.env` e reinicie o servidor): o cartão mostra "serviço de IA indisponível" e a legenda segue normal.
 - [x] Parar durante uma sugestão: nada fica gerando.
 - [x] **Limpar** apaga a legenda e a sugestão prontas; a fala em andamento continua.
+- [ ] Durante a captura, a legenda aparece em duas colunas: Entrevistador à esquerda; Você e as sugestões à direita, na ordem da conversa.
+- [ ] A sugestão aparece logo abaixo da pergunta a que responde, e essa pergunta fica marcada.
+- [ ] Clicar numa pergunta já terminada do entrevistador (ou Tab + Enter) pede a resposta para ela, mesmo depois de a conversa seguir.
+- [ ] Com o painel estreito, os blocos ocupam quase toda a largura, encostados no seu lado.
 - [ ] Repetir numa chamada real do Google Meet.

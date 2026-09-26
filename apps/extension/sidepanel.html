@@ -68,16 +68,20 @@
       </div>
     </div>
 
-    <ol id="captions" class="captions" aria-live="polite"></ol>
+    <div class="columns-header" aria-hidden="true"><span id="column-them"></span><span id="column-me"></span></div>
+    <ol id="captions" class="captions" aria-live="polite">
+      <li id="suggestion-item" class="suggestion-item" hidden>
+        <div id="suggestion" class="suggestion">
+          <div class="suggestion-label"><span id="suggestion-label"></span> <span id="suggestion-pending" class="pending-dot" hidden>gerando…</span></div>
+          <p id="suggestion-en" class="suggestion-en"></p>
+          <p id="suggestion-pt" class="suggestion-pt"></p>
+          <p id="suggestion-error" class="warning" hidden></p>
+          <p id="suggestion-notice" class="notice" hidden></p>
+        </div>
+      </li>
+    </ol>
 
     <section class="suggestion-area">
-      <div id="suggestion" class="suggestion" hidden>
-        <div class="suggestion-label"><span id="suggestion-label"></span> <span id="suggestion-pending" class="pending-dot" hidden>gerando…</span></div>
-        <p id="suggestion-en" class="suggestion-en"></p>
-        <p id="suggestion-pt" class="suggestion-pt"></p>
-        <p id="suggestion-error" class="warning" hidden></p>
-        <p id="suggestion-notice" class="notice" hidden></p>
-      </div>
       <button id="suggest" class="suggest-button">Sugerir resposta (Alt+S)</button>
     </section>
 

@@ -4,7 +4,7 @@ import { initialState, type Caption, type SessionState, type SessionStatus } fro
 import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";
 import { prepareChromeTranslator } from "../translation/chrome-translator";
 import { captionView } from "./caption-view";
-import { captionEmphasis, captionLines, isCaptureMode, type CaptionEmphasis } from "./panel-view";
+import { captionEmphasis, captionLines, columnTitles, isCaptureMode, selectableQuestion, timeline, type CaptionEmphasis } from "./panel-view";
 import { suggestionCard } from "./suggestion-view";
 import { waitForTranslator } from "./translator-wait";
 
@@ -29,7 +29,7 @@ const contextInput = byId<HTMLTextAreaElement>("context");
 const profileInput = byId<HTMLTextAreaElement>("profile");
 const jobInput = byId<HTMLTextAreaElement>("job");
 const suggestButton = byId<HTMLButtonElement>("suggest");
-const suggestionBox = byId<HTMLDivElement>("suggestion");
+const suggestionItem = byId<HTMLLIElement>("suggestion-item");
 const suggestionLabel = byId<HTMLSpanElement>("suggestion-label");
 const suggestionPending = byId<HTMLSpanElement>("suggestion-pending");
 const suggestionEn = byId<HTMLParagraphElement>("suggestion-en");
@@ -49,6 +49,8 @@ const micPermissionNotice = byId<HTMLParagraphElement>("mic-permission");
 const grantMicButton = byId<HTMLButtonElement>("grant-mic");
 const settingsPanel = byId<HTMLDetailsElement>("settings");
 const captionsList = byId<HTMLOListElement>("captions");
+const columnThem = byId<HTMLSpanElement>("column-them");
+const columnMe = byId<HTMLSpanElement>("column-me");
 const portugueseOnlyButton = byId<HTMLButtonElement>("portuguese-only");
 const clearButton = byId<HTMLButtonElement>("clear");
 const widthHint = byId<HTMLParagraphElement>("width-hint");
@@ -78,11 +80,24 @@ function createCaptionItem(caption: Caption): HTMLLIElement {
   return item;
 }
 
-function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: CaptionEmphasis): void {
+function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: CaptionEmphasis, answered: boolean): void {
   const view = captionView(caption);
   const lines = captionLines(view, caption.channel, portugueseOnly);
   item.classList.toggle("current", emphasis === "current");
   item.classList.toggle("previous", emphasis === "previous");
+  item.classList.toggle("answered", answered);
+  // Pergunta terminada: clicar (ou Enter) pede a resposta para ela.
+  const selectable = selectableQuestion(caption) !== null;
+  item.classList.toggle("selectable", selectable);
+  if (selectable) {
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    item.title = "Clique para sugerir uma resposta";
+  } else {
+    item.removeAttribute("tabindex");
+    item.removeAttribute("role");
+    item.removeAttribute("title");
+  }
   (item.querySelector(".speaker") as HTMLElement).textContent = view.speaker;
   const english = item.querySelector(".english") as HTMLElement;
   english.hidden = !lines.showEnglish;
@@ -97,24 +112,35 @@ function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: Captio
   (item.querySelector(".interrupted") as HTMLElement).hidden = !view.interrupted;
 }
 
-function renderCaptions(captions: Caption[]): void {
+function renderCaptions(state: SessionState, suggestionVisible: boolean): void {
+  const { captions } = state;
   const nearBottom = captionsList.scrollHeight - captionsList.scrollTop - captionsList.clientHeight < 60;
+  const answeredId = state.suggestion?.basedOnUtteranceId ?? null;
   const alive = new Set<string>();
   captions.forEach((caption, index) => {
     alive.add(caption.utteranceId);
     let item = captionItems.get(caption.utteranceId);
     if (!item) {
       item = createCaptionItem(caption);
+      item.dataset.utteranceId = caption.utteranceId;
       captionItems.set(caption.utteranceId, item);
-      captionsList.append(item);
     }
-    fillCaptionItem(item, caption, captionEmphasis(captions, index));
+    fillCaptionItem(item, caption, captionEmphasis(captions, index), suggestionVisible && caption.utteranceId === answeredId);
   });
   for (const [id, item] of captionItems) {
     if (alive.has(id)) continue;
     item.remove();
     captionItems.delete(id);
   }
+  // Põe os elementos na ordem da linha do tempo, mexendo só no que está fora do lugar.
+  const order = timeline(captions, suggestionVisible ? { basedOnUtteranceId: answeredId } : null).map((entry) =>
+    entry.kind === "caption" ? (captionItems.get(entry.caption.utteranceId) as HTMLLIElement) : suggestionItem,
+  );
+  if (!suggestionVisible) order.push(suggestionItem);
+  order.forEach((node, index) => {
+    const current = captionsList.children[index];
+    if (current !== node) captionsList.insertBefore(node, current ?? null);
+  });
   // Acompanha a conversa, a menos que o usuário tenha rolado para ler algo anterior.
   if (nearBottom) captionsList.scrollTop = captionsList.scrollHeight;
 }
@@ -144,13 +170,17 @@ function render(): void {
     (section.querySelector(".stats") as HTMLElement).textContent =
       `${view.sentFrames} frames · ${view.droppedFrames} descartados · ${(view.lostMs / 1000).toFixed(1)} s perdidos`;
   }
-  renderCaptions(state.captions);
-  renderSuggestion(state);
+  const titles = columnTitles(modeSelect.value as Mode);
+  columnThem.textContent = titles.them;
+  columnMe.textContent = titles.me;
+  const suggestionVisible = renderSuggestion(state);
+  renderCaptions(state, suggestionVisible);
 }
 
-function renderSuggestion(state: SessionState): void {
+/** Preenche o cartão da sugestão; devolve se ele está visível. */
+function renderSuggestion(state: SessionState): boolean {
   const card = suggestionCard(state.suggestion, state.suggestionNotice);
-  suggestionBox.hidden = !card.visible;
+  suggestionItem.hidden = !card.visible;
   suggestionLabel.textContent = card.label;
   suggestionPending.hidden = !card.pending;
   suggestionEn.textContent = card.en;
@@ -161,6 +191,7 @@ function renderSuggestion(state: SessionState): void {
   suggestionNotice.textContent = card.notice ?? "";
   suggestionLabel.hidden = !card.label;
   suggestButton.disabled = state.status !== "running";
+  return card.visible;
 }
 
 function applyState(state: SessionState): void {
@@ -209,6 +240,7 @@ async function loadSettings(): Promise<void> {
   contextInput.value = settings.context;
   profileInput.value = settings.profile;
   jobInput.value = settings.job;
+  render();
 }
 
 async function loadPreferences(): Promise<void> {
@@ -315,6 +347,26 @@ clearButton.addEventListener("click", () => {
   chrome.runtime.sendMessage({ target: "offscreen", type: "clear" } satisfies RuntimeMessage).catch(() => undefined);
 });
 
+function requestSuggestionFor(target: EventTarget | null): void {
+  if (lastState.status !== "running" || !(target instanceof Element)) return;
+  const id = target.closest<HTMLElement>("li.caption.selectable")?.dataset.utteranceId;
+  const caption = lastState.captions.find((c) => c.utteranceId === id);
+  const question = caption ? selectableQuestion(caption) : null;
+  if (!question) return;
+  chrome.runtime.sendMessage({ target: "offscreen", type: "suggest", question } satisfies RuntimeMessage).catch(() => undefined);
+}
+captionsList.addEventListener("click", (event) => {
+  // Seleção de texto (arrastar) não é clique para pedir resposta.
+  if (window.getSelection()?.toString()) return;
+  requestSuggestionFor(event.target);
+});
+captionsList.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (!(event.target instanceof Element) || !event.target.matches("li.caption.selectable")) return;
+  event.preventDefault();
+  requestSuggestionFor(event.target);
+});
+
 // Mudanças durante a sessão valem para as próximas sugestões.
 function onSettingsChanged(): void {
   const settings = readForm();
@@ -324,6 +376,7 @@ function onSettingsChanged(): void {
   chrome.runtime.sendMessage({ target: "offscreen", type: "update", changes } satisfies RuntimeMessage).catch(() => undefined);
 }
 for (const field of [modeSelect, contextInput, profileInput, jobInput]) field.addEventListener("change", onSettingsChanged);
+modeSelect.addEventListener("change", render);
 
 portugueseOnlyButton.addEventListener("click", () => {
   portugueseOnly = !portugueseOnly;

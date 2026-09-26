@@ -1,11 +1,11 @@
 import type { RuntimeMessage } from "../messaging";
-import type { SessionSettingsChanges, StartParams } from "./session-controller";
+import type { SessionSettingsChanges, StartParams, SuggestionQuestion } from "./session-controller";
 import type { SessionState, SessionStore } from "./session-store";
 
 export interface OffscreenController {
   start(params: StartParams): Promise<void>;
   stop(): void;
-  requestSuggestion(): void;
+  requestSuggestion(question?: SuggestionQuestion): void;
   update(changes: SessionSettingsChanges): void;
 }
 
@@ -29,7 +29,7 @@ export function handleOffscreenMessage(
       controller.stop();
       return { ok: true };
     case "suggest":
-      controller.requestSuggestion();
+      controller.requestSuggestion(message.question);
       return { ok: true };
     case "update":
       controller.update(message.changes);

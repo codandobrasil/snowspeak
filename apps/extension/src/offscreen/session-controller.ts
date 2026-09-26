@@ -20,6 +20,12 @@ export interface StartParams {
 }
 
 /** Campos que podem mudar durante a sessão (valem para as próximas sugestões). */
+/** Pergunta que o usuário escolheu no painel. */
+export interface SuggestionQuestion {
+  utteranceId: string;
+  text: string;
+}
+
 export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job">>;
 
 export interface ChannelCapture {
@@ -181,12 +187,12 @@ export class SessionController {
     }, STATS_INTERVAL_MS);
   }
 
-  /** Pede uma sugestão de resposta; sem sessão iniciada, não faz nada. */
-  requestSuggestion(): void {
+  /** Pede uma sugestão de resposta (para a pergunta escolhida, se houver); sem sessão iniciada, não faz nada. */
+  requestSuggestion(question?: SuggestionQuestion): void {
     const run = this.running;
     if (!run?.sender || run.stopping || !run.socket?.isOpen) return;
     const requestId = (this.deps.newRequestId ?? (() => crypto.randomUUID()))();
-    run.socket.sendJson({ type: "suggest.request", requestId });
+    run.socket.sendJson(question ? { type: "suggest.request", requestId, question } : { type: "suggest.request", requestId });
   }
 
   /** Mudanças de modo, contexto, currículo ou vaga durante a sessão. */

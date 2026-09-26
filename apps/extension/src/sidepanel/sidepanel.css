@@ -102,11 +102,28 @@ body.capturing .dots { display: inline-flex; }
 .caption.current .english,
 .caption.current .portuguese { font-size: 18px; }
 .caption .english.placeholder { color: var(--muted); font-size: 13px; }
-.caption-me { margin-left: 15%; background: transparent; border: 1px solid var(--border); border-left: 3px solid var(--me); }
-.caption-me .english { font-size: 13px; }
-.caption-me.current .english { font-size: 14px; }
+.caption-me { background: transparent; border: 1px solid var(--border); border-left: 3px solid var(--me); }
+.caption-me .english { font-size: 14px; }
 
-/* Sugestão de resposta: fixa no rodapé do painel. */
+/* Duas colunas em linha do tempo: participantes à esquerda; o usuário e as sugestões à direita. */
+.columns-header { display: none; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+body.capturing .columns-header { display: flex; }
+.columns-header span { flex: 1; }
+.columns-header span + span { padding-left: 8px; }
+.caption .speaker { display: none; }
+.caption, .suggestion-item { box-sizing: border-box; width: calc(50% - 4px); flex: none; }
+.caption-them { align-self: flex-start; }
+.caption-me, .suggestion-item { align-self: flex-end; }
+@media (max-width: 480px) {
+  .caption, .suggestion-item { width: 85%; }
+}
+
+/* Pergunta clicável para pedir a resposta; a que originou a sugestão fica marcada. */
+.caption.selectable { cursor: pointer; }
+.caption.selectable:hover, .caption.selectable:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; opacity: 1; }
+.caption.answered { box-shadow: inset 0 0 0 1px var(--accent); opacity: 1; }
+
+/* Sugestão de resposta: na linha do tempo; o botão fica no rodapé. */
 .suggestion-area { display: none; flex: none; gap: 6px; flex-direction: column; }
 body.capturing .suggestion-area { display: flex; }
 .suggestion { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--accent); background: #13202e; }

@@ -367,6 +367,16 @@ describe("SessionController", () => {
     expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-1" });
   });
 
+  it("pede sugestão para a pergunta escolhida", async () => {
+    const t = setup();
+    const controller = new SessionController({ ...t.deps, newRequestId: () => "req-2" });
+    await controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.receive(started);
+    controller.requestSuggestion({ utteranceId: "them-3", text: "Why us?" });
+    expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-2", question: { utteranceId: "them-3", text: "Why us?" } });
+  });
+
   it("não pede sugestão sem sessão iniciada", async () => {
     const t = setup();
     await t.controller.start(params);

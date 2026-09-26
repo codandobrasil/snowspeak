@@ -9,7 +9,7 @@ const params: StartParams = { streamId: "s", serverUrl: "ws://x/ws", token: "k",
 function fakeController() {
   const start = vi.fn((_params: StartParams) => Promise.resolve());
   const stop = vi.fn(() => undefined);
-  const requestSuggestion = vi.fn(() => undefined);
+  const requestSuggestion = vi.fn((_question?: object) => undefined);
   const update = vi.fn((_changes: object) => undefined);
   return { start, stop, requestSuggestion, update } satisfies OffscreenController;
 }
@@ -51,7 +51,10 @@ describe("handleOffscreenMessage", () => {
   it("pede sugestão e repassa mudanças de contexto", () => {
     const controller = fakeController();
     expect(handleOffscreenMessage({ target: "offscreen", type: "suggest" }, controller, new SessionStore())).toEqual({ ok: true });
-    expect(controller.requestSuggestion).toHaveBeenCalled();
+    expect(controller.requestSuggestion).toHaveBeenCalledWith(undefined);
+    const question = { utteranceId: "them-3", text: "Why us?" };
+    handleOffscreenMessage({ target: "offscreen", type: "suggest", question }, controller, new SessionStore());
+    expect(controller.requestSuggestion).toHaveBeenLastCalledWith(question);
     expect(handleOffscreenMessage({ target: "offscreen", type: "update", changes: { mode: "interview" } }, controller, new SessionStore())).toEqual({ ok: true });
     expect(controller.update).toHaveBeenCalledWith({ mode: "interview" });
   });

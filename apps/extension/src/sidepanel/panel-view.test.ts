@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Caption } from "../offscreen/session-store";
-import { captionEmphasis, captionLines, isCaptureMode } from "./panel-view";
+import { captionEmphasis, captionLines, columnTitles, isCaptureMode, selectableQuestion, timeline } from "./panel-view";
 import type { CaptionView } from "./caption-view";
 
 const caption = (utteranceId: string, channel: "them" | "me" = "them"): Caption => ({
@@ -39,9 +39,47 @@ describe("isCaptureMode", () => {
 });
 
 describe("captionEmphasis", () => {
-  it("destaca só a fala mais recente", () => {
-    const captions = [caption("them-1"), caption("me-1", "me"), caption("them-2")];
-    expect(captions.map((_, i) => captionEmphasis(captions, i))).toEqual(["previous", "previous", "current"]);
+  it("destaca a última fala dos participantes, mesmo quando o usuário fala depois", () => {
+    const captions = [caption("them-1"), caption("them-2"), caption("me-1", "me")];
+    expect(captions.map((_, i) => captionEmphasis(captions, i))).toEqual(["previous", "current", "normal"]);
+  });
+});
+
+describe("timeline", () => {
+  const captions = [caption("them-1"), caption("me-1", "me"), caption("them-2"), caption("me-2", "me")];
+  const ids = (items: ReturnType<typeof timeline>) => items.map((item) => (item.kind === "caption" ? item.caption.utteranceId : "SUGESTAO"));
+
+  it("sem sugestão, só as falas na ordem", () => {
+    expect(ids(timeline(captions, null))).toEqual(["them-1", "me-1", "them-2", "me-2"]);
+  });
+
+  it("coloca a sugestão logo abaixo da pergunta em que se baseia", () => {
+    expect(ids(timeline(captions, { basedOnUtteranceId: "them-1" }))).toEqual(["them-1", "SUGESTAO", "me-1", "them-2", "me-2"]);
+  });
+
+  it("sem pergunta de base (ou fora da legenda), a sugestão vai para o fim", () => {
+    expect(ids(timeline(captions, { basedOnUtteranceId: null }))).toEqual(["them-1", "me-1", "them-2", "me-2", "SUGESTAO"]);
+    expect(ids(timeline(captions, { basedOnUtteranceId: "them-99" }))).toEqual(["them-1", "me-1", "them-2", "me-2", "SUGESTAO"]);
+  });
+});
+
+describe("selectableQuestion", () => {
+  it("fala terminada dos participantes vira pergunta com o texto em inglês", () => {
+    const ended = { ...caption("them-1"), segments: ["Why fintech?", "Tell me."], ended: true };
+    expect(selectableQuestion(ended)).toEqual({ utteranceId: "them-1", text: "Why fintech? Tell me." });
+  });
+
+  it("fala em andamento, fala do usuário ou fala sem texto não é clicável", () => {
+    expect(selectableQuestion({ ...caption("them-1"), segments: ["Why"] })).toBeNull();
+    expect(selectableQuestion({ ...caption("me-1", "me"), segments: ["Hi."], ended: true })).toBeNull();
+    expect(selectableQuestion({ ...caption("them-2"), segments: [""], ended: true })).toBeNull();
+  });
+});
+
+describe("columnTitles", () => {
+  it("chama o outro lado de Entrevistador só no modo entrevista", () => {
+    expect(columnTitles("interview")).toEqual({ them: "Entrevistador", me: "Você" });
+    expect(columnTitles("work")).toEqual({ them: "Participantes", me: "Você" });
   });
 });
 
