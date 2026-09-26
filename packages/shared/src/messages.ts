@@ -36,6 +36,14 @@ const clientMessageSchema = z.discriminatedUnion("type", [
     job: z.string().max(MAX_JOB_CHARS).optional(),
   }),
   z.object({
+    type: z.literal("session.resume"),
+    token: z.string().min(1),
+    sessionId: z.string().min(1),
+    resumeToken: z.string().min(1),
+    /** Último evento que o cliente aplicou; o servidor repõe os seguintes. */
+    lastSeq: z.number().int().min(0),
+  }),
+  z.object({
     type: z.literal("session.update"),
     mode: z.enum(MODES).optional(),
     context: z.string().max(MAX_CONTEXT_CHARS).optional(),
@@ -81,6 +89,27 @@ const sessionEndedSchema = z.object({
   type: z.literal("session.ended"),
   sessionId: z.string().min(1),
   reason: z.enum(SESSION_END_REASONS),
+});
+
+const sessionResumedSchema = z.object({
+  v: z.literal(1),
+  type: z.literal("session.resumed"),
+  sessionId: z.string().min(1),
+  /** Último seq emitido no instante da retomada; os eventos repostos vêm logo depois. */
+  throughSeq: z.number().int().min(0),
+});
+
+const sessionSupersededSchema = z.object({
+  v: z.literal(1),
+  type: z.literal("session.superseded"),
+  sessionId: z.string().min(1),
+});
+
+// Sinal de vida: o cliente reconecta se ficar sem mensagens por muito tempo.
+const heartbeatSchema = z.object({
+  v: z.literal(1),
+  type: z.literal("heartbeat"),
+  sessionId: z.string().min(1),
 });
 
 export const ERROR_SCOPES = ["stt", "translate", "suggest", "session"] as const;
@@ -180,6 +209,9 @@ const suggestionErrorBody = z.object({
 const serverMessageSchema = z.discriminatedUnion("type", [
   sessionStartedSchema,
   sessionEndedSchema,
+  sessionResumedSchema,
+  sessionSupersededSchema,
+  heartbeatSchema,
   transcriptPartialBody.extend(envelopeShape),
   transcriptSegmentBody.extend(envelopeShape),
   utteranceEndBody.extend(envelopeShape),
@@ -192,7 +224,12 @@ const serverMessageSchema = z.discriminatedUnion("type", [
   suggestionErrorBody.extend(envelopeShape),
 ]);
 
-export type ServerControl = z.infer<typeof sessionStartedSchema> | z.infer<typeof sessionEndedSchema>;
+export type ServerControl =
+  | z.infer<typeof sessionStartedSchema>
+  | z.infer<typeof sessionEndedSchema>
+  | z.infer<typeof sessionResumedSchema>
+  | z.infer<typeof sessionSupersededSchema>
+  | z.infer<typeof heartbeatSchema>;
 
 export interface EventEnvelope {
   v: 1;

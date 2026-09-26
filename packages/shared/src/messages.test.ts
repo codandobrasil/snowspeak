@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { MAX_CONTEXT_CHARS, MAX_PROFILE_CHARS, MAX_QUESTION_CHARS, isServerEvent, parseClientMessage, parseServerMessage, type ServerMessage } from "./messages";
 
 describe("parseClientMessage", () => {
+  it("aceita session.resume válido e recusa lastSeq negativo ou campos vazios", () => {
+    const resume = { type: "session.resume", token: "k", sessionId: "s1", resumeToken: "r1", lastSeq: 12 };
+    expect(parseClientMessage(JSON.stringify(resume))).toEqual(resume);
+    expect(parseClientMessage(JSON.stringify({ ...resume, lastSeq: -1 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ ...resume, lastSeq: 1.5 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ ...resume, sessionId: "" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ ...resume, resumeToken: "" }))).toBeNull();
+  });
+
   it("aceita session.start válido", () => {
     const raw = JSON.stringify({ type: "session.start", token: "k", mode: "interview", context: "dev backend" });
     expect(parseClientMessage(raw)).toEqual({ type: "session.start", token: "k", mode: "interview", context: "dev backend" });
@@ -25,6 +34,18 @@ describe("parseClientMessage", () => {
 });
 
 describe("mensagens do servidor", () => {
+  it("aceita as mensagens de controle da retomada, sem seq", () => {
+    const resumed = { v: 1, type: "session.resumed", sessionId: "s1", throughSeq: 40 };
+    const superseded = { v: 1, type: "session.superseded", sessionId: "s1" };
+    const heartbeat = { v: 1, type: "heartbeat", sessionId: "s1" };
+    for (const message of [resumed, superseded, heartbeat]) {
+      const parsed = parseServerMessage(JSON.stringify(message));
+      expect(parsed).toEqual(message);
+      expect(parsed && isServerEvent(parsed)).toBe(false);
+    }
+    expect(parseServerMessage(JSON.stringify({ ...resumed, throughSeq: -1 }))).toBeNull();
+  });
+
   it("distingue eventos (com seq) de mensagens de controle", () => {
     const control: ServerMessage = { v: 1, type: "session.started", sessionId: "s", resumeToken: "r" };
     const event: ServerMessage = { v: 1, type: "transcript.partial", sessionId: "s", seq: 1, ts: 0, channel: "them", utteranceId: "them-1", text: "hi" };

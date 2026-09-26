@@ -147,6 +147,10 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
         return { ...state, status: "running", sessionId: message.sessionId, lastSeq: 0 };
       case "session.ended":
         return { ...state, status: "idle", channels: silenced(state) };
+      case "session.resumed":
+      case "session.superseded":
+      case "heartbeat":
+        return state;
     }
   }
   if (message.seq <= state.lastSeq) return state;
