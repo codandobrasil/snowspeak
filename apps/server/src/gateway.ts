@@ -93,9 +93,11 @@ function handleConnection(ws: WebSocket, config: ServerConfig, deps: GatewayDeps
       }
       clearTimeout(authTimer);
       session = new Session(
-        { sttFactory: deps.sttFactory, suggester: deps.suggester, send },
+        { sttFactory: deps.sttFactory, suggester: deps.suggester },
         { mode: message.mode, context: message.context, profile: message.profile ?? "", job: message.job ?? "" },
+        message.token,
       );
+      session.attach({ send, close: (code, reason) => ws.close(code, reason) });
       send({ v: 1, type: "session.started", sessionId: session.id, resumeToken: session.resumeToken });
       return;
     }
