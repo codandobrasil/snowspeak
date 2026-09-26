@@ -58,6 +58,11 @@ export class UtteranceAssembler {
     return this.current ? [this.close(true)] : [];
   }
 
+  /** Stream novo do STT (retomada): os tempos dele recomeçam do zero. */
+  resetTimeline(): void {
+    this.lastClosedEnd = Number.NEGATIVE_INFINITY;
+  }
+
   private open(): OpenUtterance {
     if (!this.current) {
       this.count += 1;
