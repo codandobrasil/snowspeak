@@ -19,6 +19,29 @@ function run(...actions: StoreAction[]): SessionState {
 }
 
 describe("reduce", () => {
+  it("guarda o resumeToken, vai para reconectando sem perder a legenda e volta com session.resumed", () => {
+    const withCaption = run(
+      { type: "starting" },
+      { type: "server", message: started },
+      { type: "server", message: partial(1, "hi") },
+      { type: "level", channel: "them", rms: 0.5 },
+    );
+    expect(withCaption.resumeToken).toBe("r1");
+    const reconnecting = reduce(withCaption, { type: "reconnecting" });
+    expect(reconnecting).toMatchObject({ status: "reconnecting", lastSeq: 1, sessionId: "s1", resumeToken: "r1" });
+    expect(reconnecting.captions).toHaveLength(1);
+    expect(reconnecting.channels.them.level).toBe(0);
+    const resumed = reduce(reconnecting, { type: "server", message: { v: 1, type: "session.resumed", sessionId: "s1", throughSeq: 4 } });
+    expect(resumed).toMatchObject({ status: "running", lastSeq: 1, resumeToken: "r1" });
+    expect(resumed.captions).toBe(reconnecting.captions);
+  });
+
+  it("heartbeat e session.superseded não mudam o estado", () => {
+    const state = run({ type: "server", message: started });
+    expect(reduce(state, { type: "server", message: { v: 1, type: "heartbeat", sessionId: "s1" } })).toBe(state);
+    expect(reduce(state, { type: "server", message: { v: 1, type: "session.superseded", sessionId: "s1" } })).toBe(state);
+  });
+
   it("vai de starting para running com o sessionId", () => {
     const state = run({ type: "starting" }, { type: "server", message: started });
     expect(state.status).toBe("running");

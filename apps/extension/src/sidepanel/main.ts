@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<SessionStatus, string> = {
   idle: "Parado",
   starting: "Iniciando…",
   running: "Capturando",
+  reconnecting: "Reconectando…",
   stopping: "Finalizando…",
   error: "Erro",
 };
@@ -148,7 +149,7 @@ function renderCaptions(state: SessionState, suggestionVisible: boolean): void {
 
 function render(): void {
   const state = lastState;
-  const active = pendingStart || state.status === "starting" || state.status === "running";
+  const active = pendingStart || state.status === "starting" || state.status === "running" || state.status === "reconnecting";
   document.body.classList.toggle("capturing", isCaptureMode(state.status, pendingStart));
   portugueseOnlyButton.setAttribute("aria-pressed", String(portugueseOnly));
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
@@ -156,7 +157,7 @@ function render(): void {
   stopButton.disabled = !active;
   muteMicButton.setAttribute("aria-pressed", String(state.micMuted));
   muteMicButton.textContent = state.micMuted ? "Microfone desligado" : "Microfone";
-  muteMicButton.disabled = state.mic !== "active" || state.status !== "running";
+  muteMicButton.disabled = state.mic !== "active" || (state.status !== "running" && state.status !== "reconnecting");
   clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";

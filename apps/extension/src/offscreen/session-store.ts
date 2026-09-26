@@ -1,7 +1,7 @@
 import { isServerEvent, type Channel, type ServerMessage, type SuggestionErrorCode, type SuggestionTrigger } from "@snowspeak/shared";
 import type { ChannelStats } from "./frame-sender";
 
-export type SessionStatus = "idle" | "starting" | "running" | "stopping" | "error";
+export type SessionStatus = "idle" | "starting" | "running" | "reconnecting" | "stopping" | "error";
 export type MicStatus = "unknown" | "active" | "denied";
 
 export const MAX_CAPTIONS = 200;
@@ -48,6 +48,7 @@ export interface SessionState {
   errorMessage: string | null;
   notice: string | null;
   sessionId: string | null;
+  resumeToken: string | null;
   mic: MicStatus;
   /** O usuário desligou o microfone pelo painel: o áudio dele não sai do computador. */
   micMuted: boolean;
@@ -73,6 +74,8 @@ export type StoreAction =
   | { type: "clear-notice"; message: string }
   /** Botão Limpar: some com o que já terminou; a fala e a sugestão em andamento continuam. */
   | { type: "clear" }
+  /** Conexão caiu; a captura continua enquanto o controlador tenta retomar. */
+  | { type: "reconnecting" }
   | { type: "stopping" }
   | { type: "failed"; message: string }
   | { type: "stopped" };
@@ -87,6 +90,7 @@ export function initialState(): SessionState {
     errorMessage: null,
     notice: null,
     sessionId: null,
+    resumeToken: null,
     mic: "unknown",
     micMuted: false,
     lastSeq: 0,
@@ -144,10 +148,11 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
   if (!isServerEvent(message)) {
     switch (message.type) {
       case "session.started":
-        return { ...state, status: "running", sessionId: message.sessionId, lastSeq: 0 };
+        return { ...state, status: "running", sessionId: message.sessionId, resumeToken: message.resumeToken, lastSeq: 0 };
       case "session.ended":
         return { ...state, status: "idle", channels: silenced(state) };
       case "session.resumed":
+        return { ...state, status: "running" };
       case "session.superseded":
       case "heartbeat":
         return state;
@@ -241,6 +246,8 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
         suggestion: state.suggestion?.status === "streaming" ? state.suggestion : null,
         suggestionNotice: null,
       };
+    case "reconnecting":
+      return { ...state, status: "reconnecting", channels: silenced(state) };
     case "stopping":
       return { ...state, status: "stopping", channels: silenced(state) };
     case "failed":
