@@ -5,6 +5,12 @@ import {
   SESSION_START_TIMEOUT_MS,
   STOP_TIMEOUT_MS,
   STATS_INTERVAL_MS,
+  RECONNECT_DELAYS_MS,
+  RESUME_WINDOW_MS,
+  SERVER_SILENCE_TIMEOUT_MS,
+  SESSION_EXPIRED_MESSAGE,
+  SESSION_REPLACED_MESSAGE,
+  SESSION_SUPERSEDED_MESSAGE,
   SessionController,
   type CaptureCallbacks,
   type ChannelCapture,
@@ -430,6 +436,160 @@ describe("microfone desligado", () => {
     t.sockets[1]!.open();
     t.sockets[1]!.receive(started);
     expect(t.store.snapshot().micMuted).toBe(false);
+  });
+});
+
+describe("reconexão", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const resumed: ServerMessage = { v: 1, type: "session.resumed", sessionId: "s1", throughSeq: 0 };
+  const segment = (seq: number): ServerMessage => ({
+    v: 1,
+    type: "transcript.segment",
+    sessionId: "s1",
+    seq,
+    ts: 0,
+    channel: "them",
+    utteranceId: "them-1",
+    segmentIdx: 0,
+    text: "Hello.",
+  });
+
+  it("queda sem código de aplicação: captura continua e retoma com o lastSeq do store", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.receive(segment(7));
+    first.serverClose(1006);
+    expect(t.store.snapshot().status).toBe("reconnecting");
+    expect(t.tab.stopped).toBe(false);
+    expect(t.mic.stopped).toBe(false);
+    t.emitFrame("them"); // descartado: sem conexão
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
+    const second = t.sockets[1]!;
+    second.open();
+    expect(second.json).toEqual([{ type: "session.resume", token: "key-1", sessionId: "s1", resumeToken: "r1", lastSeq: 7 }]);
+    second.receive({ ...resumed, throughSeq: 7 });
+    expect(t.store.snapshot()).toMatchObject({ status: "running", lastSeq: 7 });
+    t.emitFrame("them");
+    expect(second.binary).toHaveLength(1);
+    expect(first.binary).toHaveLength(0);
+  });
+
+  it("tenta de novo com espera crescente e desiste 60 s depois da queda", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.serverClose(1006);
+    const opened: number[] = [];
+    let elapsed = 0;
+    while (t.store.snapshot().status === "reconnecting" && elapsed <= RESUME_WINDOW_MS + 10_000) {
+      vi.advanceTimersByTime(100);
+      elapsed += 100;
+      const last = t.sockets.at(-1)!;
+      if (t.sockets.length - 1 > opened.length) {
+        opened.push(elapsed);
+        last.serverClose(1006); // tentativa falha sem abrir
+      }
+    }
+    expect(opened.slice(0, 7)).toEqual([500, 1_500, 3_500, 7_500, 15_500, 25_500, 35_500]);
+    expect(opened.at(-1)).toBeLessThanOrEqual(RESUME_WINDOW_MS);
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: SESSION_EXPIRED_MESSAGE });
+    expect(t.tab.stopped).toBe(true);
+  });
+
+  it("15 s sem mensagens do servidor derruba a conexão e reconecta", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    vi.advanceTimersByTime(SERVER_SILENCE_TIMEOUT_MS - 1_000);
+    first.receive({ v: 1, type: "heartbeat", sessionId: "s1" });
+    vi.advanceTimersByTime(SERVER_SILENCE_TIMEOUT_MS - 1_000);
+    expect(t.store.snapshot().status).toBe("running");
+    vi.advanceTimersByTime(1_000);
+    expect(first.closed).toBe(true);
+    expect(t.store.snapshot().status).toBe("reconnecting");
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("tentativa que não responde em 5 s conta como falha e agenda a próxima", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.serverClose(1006);
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
+    t.sockets[1]!.open(); // abre, mas o servidor nunca responde
+    vi.advanceTimersByTime(5_000);
+    expect(t.sockets[1]!.closed).toBe(true);
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[1]!);
+    expect(t.sockets).toHaveLength(3);
+  });
+
+  it("Parar durante a reconexão cancela as tentativas e libera a captura", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.serverClose(1006);
+    t.controller.stop();
+    expect(t.store.snapshot()).toMatchObject({ status: "idle" });
+    expect(t.tab.stopped).toBe(true);
+    vi.advanceTimersByTime(RESUME_WINDOW_MS);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("não envia sugestão nem mudanças antes do session.resumed", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.serverClose(1006);
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
+    const second = t.sockets[1]!;
+    second.open();
+    t.controller.requestSuggestion();
+    t.controller.update({ job: "x" });
+    expect(second.json.map((m) => m.type)).toEqual(["session.resume"]);
+  });
+
+  it.each([
+    [4404, SESSION_EXPIRED_MESSAGE],
+    [4400, SESSION_EXPIRED_MESSAGE],
+    [4409, SESSION_SUPERSEDED_MESSAGE],
+    [4401, "Chave de acesso inválida."],
+  ])("retomada recusada com %i: para e mostra a mensagem", async (code, message) => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.serverClose(1006);
+    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
+    t.sockets[1]!.open();
+    t.sockets[1]!.serverClose(code);
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: message });
+    expect(t.tab.stopped).toBe(true);
+    vi.advanceTimersByTime(RESUME_WINDOW_MS);
+    expect(t.sockets).toHaveLength(2);
+  });
+
+  it("4409 com a sessão ativa também para, sem reconectar", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.receive({ v: 1, type: "session.superseded", sessionId: "s1" });
+    first.serverClose(4409);
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: SESSION_SUPERSEDED_MESSAGE });
+    vi.advanceTimersByTime(RESUME_WINDOW_MS);
+    expect(t.sockets).toHaveLength(1);
+  });
+
+  it("sessão substituída por outro Iniciar: mostra a mensagem própria", async () => {
+    const t = setup();
+    const first = await startRunning(t);
+    first.receive({ v: 1, type: "session.ended", sessionId: "s1", reason: "replaced" });
+    first.serverClose(4410);
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: SESSION_REPLACED_MESSAGE });
+  });
+
+  it("queda antes do session.started não reconecta", async () => {
+    const t = setup();
+    await t.controller.start(params);
+    t.sockets[0]!.open();
+    t.sockets[0]!.serverClose(1006);
+    expect(t.store.snapshot().status).toBe("error");
+    vi.advanceTimersByTime(RESUME_WINDOW_MS);
+    expect(t.sockets).toHaveLength(1);
   });
 });
 
