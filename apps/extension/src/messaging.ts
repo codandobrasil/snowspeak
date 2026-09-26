@@ -13,6 +13,7 @@ export type OffscreenMessage =
   | { target: "offscreen"; type: "stop" }
   | { target: "offscreen"; type: "get-state" }
   | { target: "offscreen"; type: "suggest" }
+  | { target: "offscreen"; type: "clear" }
   | { target: "offscreen"; type: "update"; changes: SessionSettingsChanges };
 
 export type SidePanelMessage = { target: "sidepanel"; type: "state"; state: SessionState };

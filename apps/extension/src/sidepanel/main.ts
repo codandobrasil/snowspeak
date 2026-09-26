@@ -50,6 +50,7 @@ const grantMicButton = byId<HTMLButtonElement>("grant-mic");
 const settingsPanel = byId<HTMLDetailsElement>("settings");
 const captionsList = byId<HTMLOListElement>("captions");
 const portugueseOnlyButton = byId<HTMLButtonElement>("portuguese-only");
+const clearButton = byId<HTMLButtonElement>("clear");
 const widthHint = byId<HTMLParagraphElement>("width-hint");
 const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
 
@@ -126,6 +127,7 @@ function render(): void {
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
   startButton.disabled = active || state.status === "stopping";
   stopButton.disabled = !active;
+  clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";
   noticeLabel.hidden = !state.notice;
@@ -307,6 +309,10 @@ stopButton.addEventListener("click", () => {
 
 suggestButton.addEventListener("click", () => {
   chrome.runtime.sendMessage({ target: "offscreen", type: "suggest" } satisfies RuntimeMessage).catch(() => undefined);
+});
+
+clearButton.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ target: "offscreen", type: "clear" } satisfies RuntimeMessage).catch(() => undefined);
 });
 
 // Mudanças durante a sessão valem para as próximas sugestões.

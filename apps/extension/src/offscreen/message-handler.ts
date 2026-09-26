@@ -34,6 +34,9 @@ export function handleOffscreenMessage(
     case "update":
       controller.update(message.changes);
       return { ok: true };
+    case "clear":
+      store.dispatch({ type: "clear" });
+      return { ok: true };
     case "get-state":
       return store.snapshot();
   }

@@ -34,6 +34,16 @@ describe("handleOffscreenMessage", () => {
     expect(handleOffscreenMessage({ target: "offscreen", type: "get-state" }, fakeController(), store)).toBe(store.snapshot());
   });
 
+  it("limpa a legenda no store em clear", () => {
+    const store = new SessionStore();
+    store.dispatch({ type: "server", message: { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r" } });
+    store.dispatch({ type: "server", message: { v: 1, type: "suggestion.started", sessionId: "s1", seq: 1, ts: 0, requestId: "a", trigger: "manual", basedOnUtteranceId: null } });
+    store.dispatch({ type: "server", message: { v: 1, type: "suggestion.done", sessionId: "s1", seq: 2, ts: 0, requestId: "a", en: "Hi.", pt: "Oi." } });
+    expect(store.snapshot().suggestion).not.toBeNull();
+    expect(handleOffscreenMessage({ target: "offscreen", type: "clear" }, fakeController(), store)).toEqual({ ok: true });
+    expect(store.snapshot().suggestion).toBeNull();
+  });
+
   it("ignora mensagens destinadas a outros contextos", () => {
     const message: RuntimeMessage = { target: "background", type: "stop" };
     expect(handleOffscreenMessage(message, fakeController(), new SessionStore())).toBeUndefined();

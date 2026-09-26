@@ -68,6 +68,8 @@ export type StoreAction =
   | { type: "notice"; message: string }
   /** Apaga o aviso só se ele ainda for o indicado (não apaga avisos de outra origem). */
   | { type: "clear-notice"; message: string }
+  /** Botão Limpar: some com o que já terminou; a fala e a sugestão em andamento continuam. */
+  | { type: "clear" }
   | { type: "stopping" }
   | { type: "failed"; message: string }
   | { type: "stopped" };
@@ -222,6 +224,13 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
       return { ...state, notice: action.message };
     case "clear-notice":
       return state.notice === action.message ? { ...state, notice: null } : state;
+    case "clear":
+      return {
+        ...state,
+        captions: state.captions.filter((c) => !c.ended),
+        suggestion: state.suggestion?.status === "streaming" ? state.suggestion : null,
+        suggestionNotice: null,
+      };
     case "stopping":
       return { ...state, status: "stopping", channels: silenced(state) };
     case "failed":

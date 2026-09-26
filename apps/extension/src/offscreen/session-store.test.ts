@@ -301,3 +301,37 @@ describe("sugestão", () => {
     expect(state.suggestion).toBeNull();
   });
 });
+
+describe("limpar", () => {
+  it("apaga as falas terminadas e mantém a fala em andamento", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: event(1, { type: "transcript.segment", segmentIdx: 0, text: "Hello." }) },
+      { type: "server", message: event(2, { type: "utterance.end", interrupted: false }) },
+      { type: "server", message: event(3, { type: "transcript.partial", utteranceId: "them-2", text: "and" }) },
+      { type: "clear" },
+    );
+    expect(state.captions.map((c) => c.utteranceId)).toEqual(["them-2"]);
+  });
+
+  it("apaga a sugestão pronta e o aviso de sugestão", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
+      { type: "server", message: suggestionEvent(2, { type: "suggestion.done", requestId: "a", en: "Hi.", pt: "Oi." }) },
+      { type: "server", message: suggestionEvent(3, { type: "suggestion.error", requestId: "b", code: "busy" }) },
+      { type: "clear" },
+    );
+    expect(state.suggestion).toBeNull();
+    expect(state.suggestionNotice).toBeNull();
+  });
+
+  it("mantém a sugestão que ainda está sendo gerada", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
+      { type: "clear" },
+    );
+    expect(state.suggestion?.requestId).toBe("a");
+  });
+});
