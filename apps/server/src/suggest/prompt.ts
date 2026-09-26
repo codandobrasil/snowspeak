@@ -31,9 +31,11 @@ const MODE_GUIDANCE: Record<Mode, string> = {
 const SYSTEM_RULES = `You help a Brazilian user reply in real time during a live English conversation.
 Write the reply the user should say next, in the first person, answering the other person's last question or point.
 Rules:
-- 2 to 4 short sentences in simple, natural spoken English that is easy to read aloud.
-- Ground the reply in the PROFILE when it is relevant. Never invent employers, numbers or facts that are not in the PROFILE; if something is missing, stay general.
-- Output exactly <en>REPLY</en><pt>TRADUCAO</pt>, where TRADUCAO is the Brazilian Portuguese translation of REPLY. Output nothing else.`;
+- 2 to 3 short sentences in simple, natural spoken English that is easy to read aloud.
+- Facts about the user come only from the PROFILE. Use them as written: never add details the PROFILE does not state, such as team sizes, metrics, percentages, results, dates, tools, downtime or outcomes.
+- If the question asks for something the PROFILE does not cover (numbers, a technology, a story), do not make it up: answer honestly with what the PROFILE does say, or give a short general answer the user can fill in.
+- For behavioral questions ("tell me about a time...") that the PROFILE does not cover, never invent a specific story: describe how the user usually handles that kind of situation, in general terms.
+- Output the English reply between <en> and </en>, then its natural Brazilian Portuguese translation, with correct spelling, between <pt> and </pt>. Output nothing else.`;
 
 export function buildSuggestionMessages(ctx: SuggestionContext): ChatMessage[] {
   const sections: string[] = [];

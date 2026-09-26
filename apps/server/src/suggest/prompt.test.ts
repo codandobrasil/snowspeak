@@ -18,8 +18,19 @@ describe("buildSuggestionMessages", () => {
     expect(system?.role).toBe("system");
     expect(system?.content).toContain("<en>");
     expect(system?.content).toContain("<pt>");
-    expect(system?.content).toContain("2 to 4");
+    expect(system?.content).toContain("2 to 3");
     expect(system?.content.toLowerCase()).toContain("job interview");
+  });
+
+  it("proíbe inventar fatos e histórias que o currículo não traz", () => {
+    const system = buildSuggestionMessages(base)[0]?.content ?? "";
+    expect(system).toContain("never add details the PROFILE does not state");
+    expect(system).toContain("never invent a specific story");
+  });
+
+  it("não usa marcadores que o modelo possa copiar literalmente", () => {
+    const system = buildSuggestionMessages(base)[0]?.content ?? "";
+    expect(system).not.toMatch(/REPLY|TRADUCAO/);
   });
 
   it("inclui currículo, vaga, contexto e a conversa rotulada", () => {
