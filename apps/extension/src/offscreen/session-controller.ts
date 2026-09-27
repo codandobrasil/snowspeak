@@ -1,41 +1,39 @@
-import { CLOSE_CODES, type Channel, type ClientMessage, type Mode, type ServerMessage, type SessionEndReason } from "@snowspeak/shared";
-import { FrameSender, type FrameSink } from "./frame-sender";
+import type { ChannelStats } from "@snowspeak/engine";
+import type { Channel, EngineMessage, Mode, ResponseLength, SessionEndReason } from "@snowspeak/shared";
 import type { SessionStore } from "./session-store";
 
 export const STATS_INTERVAL_MS = 500;
-export const SESSION_START_TIMEOUT_MS = 5_000;
 // O offscreen não exibe pedido de permissão; se o getUserMedia do microfone ficar pendente, segue sem ele.
 export const MIC_CAPTURE_TIMEOUT_MS = 3_000;
-// Parar espera o servidor entregar as últimas falas; depois disso fecha mesmo assim.
+// Parar espera o Deepgram entregar as últimas falas; depois disso fecha mesmo assim.
 export const STOP_TIMEOUT_MS = 3_000;
-// Reconexão depois de uma queda: espera crescente, até 60 s contados da queda.
-export const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000, 10_000];
-export const RESUME_WINDOW_MS = 60_000;
-// O servidor manda heartbeat a cada 5 s; sem nenhuma mensagem por 15 s, a conexão está morta.
-export const SERVER_SILENCE_TIMEOUT_MS = 15_000;
 
-export const SESSION_EXPIRED_MESSAGE = "A conexão ficou fora por muito tempo e a sessão foi encerrada.";
-export const SESSION_SUPERSEDED_MESSAGE = "Sessão aberta em outro lugar.";
-export const SESSION_REPLACED_MESSAGE = "Sessão encerrada: foi iniciada em outro lugar.";
+export const DEEPGRAM_UNAVAILABLE_MESSAGE = "Não foi possível conectar ao Deepgram. Confira a chave em Configurações.";
+export const TAB_CAPTURE_ENDED_MESSAGE = "A captura da aba terminou (aba fechada ou compartilhamento encerrado).";
 
 export interface StartParams {
   streamId: string;
-  serverUrl: string;
-  token: string;
+  deepgramKey: string;
+  /** Vazia: sessão sem sugestões. */
+  openRouterKey: string;
+  suggestionModel: string;
+  responseLength: ResponseLength;
+  /** Botão Sugestões: desligado, nenhum pedido vai ao OpenRouter. */
+  suggestionsOn: boolean;
   mode: Mode;
   context: string;
   profile: string;
   job: string;
 }
 
-/** Campos que podem mudar durante a sessão (valem para as próximas sugestões). */
 /** Pergunta que o usuário escolheu no painel. */
 export interface SuggestionQuestion {
   utteranceId: string;
   text: string;
 }
 
-export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job">>;
+/** Campos que podem mudar durante a sessão (valem para as próximas sugestões). */
+export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job" | "responseLength">>;
 
 export interface ChannelCapture {
   stop(): void;
@@ -48,55 +46,44 @@ export interface CaptureCallbacks {
   onEnded(channel: Channel): void;
 }
 
-export interface SocketHandlers {
-  onOpen(): void;
-  onMessage(message: ServerMessage): void;
-  onClose(code: number, reason: string): void;
-}
-
-export interface ControllerSocket extends FrameSink {
-  sendJson(message: ClientMessage): void;
-  close(): void;
+/** A sessão do motor (LocalSession no offscreen; uma versão falsa nos testes). */
+export interface EngineSession {
+  /** Resolve quando o Deepgram dos participantes abre; rejeita se ele recusar ou se a sessão fechar antes. */
+  start(): Promise<void>;
+  acceptPcm(channel: Channel, pcm: Uint8Array): void;
+  stats(): Record<Channel, ChannelStats>;
+  update(changes: SessionSettingsChanges): void;
+  requestSuggestion(requestId: string, question?: SuggestionQuestion): void;
+  beginStop(): void;
+  drain(): Promise<void>;
+  close(reason: SessionEndReason): void;
 }
 
 export interface ControllerDeps {
   store: SessionStore;
   captureTab(streamId: string, cb: CaptureCallbacks): Promise<ChannelCapture>;
   captureMic(cb: CaptureCallbacks): Promise<ChannelCapture>;
-  /** Pode lançar de forma síncrona (ex.: URL inválida). */
-  openSocket(url: string, handlers: SocketHandlers): ControllerSocket;
-  /** Recebe cada mensagem do servidor depois que ela foi aplicada ao store (ex.: fila de tradução). */
-  onServerMessage?: (message: ServerMessage) => void;
+  /** Cria a sessão com as chaves de `params`; as mensagens dela chegam por `onMessage`. */
+  createSession(params: StartParams, onMessage: (message: EngineMessage) => void): EngineSession;
+  /** Recebe cada mensagem do motor depois que ela foi aplicada ao store (ex.: fila de tradução). */
+  onEngineMessage?: (message: EngineMessage) => void;
   /** Gera o requestId de cada pedido de sugestão (padrão: crypto.randomUUID). */
   newRequestId?: () => string;
-}
-
-interface Reconnect {
-  since: number;
-  attempt: number;
-  timer: ReturnType<typeof setTimeout> | null;
 }
 
 interface Run {
   params: StartParams;
   tab: ChannelCapture | null;
   mic: ChannelCapture | null;
-  socket: ControllerSocket | null;
-  sender: FrameSender | null;
-  wasOpen: boolean;
-  /** Sessão iniciada ou retomada neste socket: frames e pedidos podem ir ao servidor. */
+  session: EngineSession | null;
+  /** O Deepgram dos participantes abriu: o áudio e os pedidos podem ir à sessão. */
   live: boolean;
-  sessionId: string | null;
-  resumeToken: string | null;
-  endedReason: SessionEndReason | null;
-  reconnect: Reconnect | null;
   statsTimer: ReturnType<typeof setInterval> | null;
-  startTimer: ReturnType<typeof setTimeout> | null;
-  silenceTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
   stopTimer: ReturnType<typeof setTimeout> | null;
-  /** Microfone desligado pelo usuário: nada do canal "me" é enviado. */
+  /** Microfone desligado pelo usuário: nada do canal "me" vai ao Deepgram. */
   micMuted: boolean;
+  suggestionsOn: boolean;
 }
 
 /** Rejeita após `ms`; uma captura que chegue depois do prazo é parada imediatamente. */
@@ -131,16 +118,6 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function describeClose(code: number, wasOpen: boolean): string {
-  if (!wasOpen) return "Não foi possível conectar ao servidor.";
-  if (code === CLOSE_CODES.unauthorized) return "Chave de acesso inválida.";
-  return `Conexão com o servidor encerrada (código ${code}).`;
-}
-
-function isApplicationClose(code: number): boolean {
-  return code >= 4400 && code <= 4499;
-}
-
 export class SessionController {
   private running: Run | null = null;
 
@@ -152,28 +129,21 @@ export class SessionController {
       params,
       tab: null,
       mic: null,
-      socket: null,
-      sender: null,
-      wasOpen: false,
+      session: null,
       live: false,
-      sessionId: null,
-      resumeToken: null,
-      endedReason: null,
-      reconnect: null,
       statsTimer: null,
-      startTimer: null,
-      silenceTimer: null,
       stopping: false,
       stopTimer: null,
       micMuted: false,
+      suggestionsOn: params.suggestionsOn,
     };
     this.running = run;
-    this.deps.store.dispatch({ type: "starting" });
+    this.deps.store.dispatch({ type: "starting", suggestionsEnabled: params.openRouterKey !== "", suggestionsOn: params.suggestionsOn });
 
     const callbacks: CaptureCallbacks = {
       onFrame: (channel, pcm) => {
         if (channel === "me" && run.micMuted) return;
-        run.sender?.push(channel, pcm);
+        if (run.live && !run.stopping) run.session?.acceptPcm(channel, new Uint8Array(pcm));
       },
       onLevel: (channel, rms) => {
         if (channel === "me" && run.micMuted) return;
@@ -208,29 +178,30 @@ export class SessionController {
     run.mic = mic;
     this.deps.store.dispatch({ type: "mic", status: mic ? "active" : "denied" });
 
-    const startMessage: ClientMessage = {
-      type: "session.start",
-      token: params.token,
-      mode: params.mode,
-      context: params.context,
-      profile: params.profile,
-      job: params.job,
-    };
-    if (!this.connect(run, () => startMessage)) {
-      this.fail(run, "Endereço do servidor inválido.");
+    const session = this.deps.createSession(params, (message) => this.onEngineMessage(run, message));
+    run.session = session;
+    try {
+      await session.start();
+    } catch (error) {
+      // Parar durante a conexão também rejeita o start; aí a execução já foi liberada.
+      if (this.running !== run) return;
+      console.warn(`Deepgram não abriu: ${errorText(error)}`);
+      this.fail(run, DEEPGRAM_UNAVAILABLE_MESSAGE);
       return;
     }
+    if (this.running !== run) return;
+    run.live = true;
     run.statsTimer = setInterval(() => {
-      if (run.sender) this.deps.store.dispatch({ type: "stats", stats: run.sender.stats() });
+      if (run.session) this.deps.store.dispatch({ type: "stats", stats: run.session.stats() });
     }, STATS_INTERVAL_MS);
   }
 
-  /** Pede uma sugestão de resposta (para a pergunta escolhida, se houver); sem sessão iniciada, não faz nada. */
+  /** Pede uma sugestão de resposta (para a pergunta escolhida, se houver); sem sessão rodando, não faz nada. */
   requestSuggestion(question?: SuggestionQuestion): void {
     const run = this.running;
-    if (!run?.live || run.stopping || !run.socket?.isOpen) return;
+    if (!run?.live || run.stopping || !run.session || !run.suggestionsOn) return;
     const requestId = (this.deps.newRequestId ?? (() => crypto.randomUUID()))();
-    run.socket.sendJson(question ? { type: "suggest.request", requestId, question } : { type: "suggest.request", requestId });
+    run.session.requestSuggestion(requestId, question);
   }
 
   /** Liga ou desliga o envio do microfone; o microfone continua aberto para religar na hora. */
@@ -241,162 +212,56 @@ export class SessionController {
     this.deps.store.dispatch({ type: "mic-muted", muted });
   }
 
-  /** Mudanças de modo, contexto, currículo ou vaga durante a sessão. */
+  /** Botão Sugestões: desligado, cliques, botão e Alt+S não pedem nada. */
+  setSuggestionsOn(on: boolean): void {
+    const run = this.running;
+    if (!run || run.stopping) return;
+    run.suggestionsOn = on;
+    this.deps.store.dispatch({ type: "suggestions-on", on });
+  }
+
+  /** Mudanças de modo, contexto, currículo, vaga ou tamanho da resposta durante a sessão. */
   update(changes: SessionSettingsChanges): void {
     const run = this.running;
-    if (!run?.live || run.stopping || !run.socket?.isOpen) return;
-    run.socket.sendJson({ type: "session.update", ...changes });
+    if (!run?.live || run.stopping || !run.session) return;
+    run.session.update(changes);
   }
 
   stop(): void {
     const run = this.running;
     if (!run || run.stopping) return;
-    if (!run.live || !run.socket?.isOpen) {
-      // Sessão ainda não começou ou está reconectando: não há o que finalizar agora.
-      if (!run.reconnect) run.socket?.sendJson({ type: "session.stop" });
-      this.release(run);
+    if (!run.live || !run.session) {
+      // Ainda capturando ou conectando ao Deepgram: não há falas a finalizar.
+      this.release(run, "stopped");
       this.deps.store.dispatch({ type: "stopped" });
       return;
     }
-    // Para de capturar, mas continua recebendo as últimas falas até o servidor encerrar.
+    // Para de capturar, mas deixa o Deepgram entregar as últimas falas antes de encerrar.
     run.stopping = true;
+    const session = run.session;
     this.releaseCaptures(run);
-    run.socket.sendJson({ type: "session.stop" });
+    session.beginStop();
     this.deps.store.dispatch({ type: "stopping" });
-    run.stopTimer = setTimeout(() => {
+    const deadline = new Promise<void>((resolve) => {
+      run.stopTimer = setTimeout(resolve, STOP_TIMEOUT_MS);
+    });
+    void Promise.race([session.drain(), deadline]).then(() => {
       if (this.running !== run) return;
-      this.release(run);
+      this.release(run, "stopped");
       this.deps.store.dispatch({ type: "stopped" });
-    }, STOP_TIMEOUT_MS);
+    });
   }
 
-  /** Abre um socket para esta execução; `first` é a primeira mensagem (início ou retomada). */
-  private connect(run: Run, first: () => ClientMessage): boolean {
-    let socket: ControllerSocket;
-    try {
-      socket = this.deps.openSocket(run.params.serverUrl, {
-        onOpen: () => {
-          if (run.socket !== socket) return;
-          run.wasOpen = true;
-          socket.sendJson(first());
-        },
-        onMessage: (message) => {
-          if (run.socket === socket) this.onServerMessage(run, message);
-        },
-        onClose: (code) => {
-          if (run.socket === socket) this.onSocketClose(run, code);
-        },
-      });
-    } catch {
-      return false;
-    }
-    run.socket = socket;
-    run.startTimer = setTimeout(() => {
-      if (this.running !== run || run.socket !== socket) return;
-      if (run.reconnect) this.onConnectionLost(run);
-      else this.fail(run, "O servidor não respondeu a tempo.");
-    }, SESSION_START_TIMEOUT_MS);
-    return true;
-  }
-
-  private onServerMessage(run: Run, message: ServerMessage): void {
+  private onEngineMessage(run: Run, message: EngineMessage): void {
     if (this.running !== run) return;
-    if (message.type === "session.started" || message.type === "session.resumed") {
-      if (run.startTimer) clearTimeout(run.startTimer);
-      run.startTimer = null;
-      if (message.type === "session.started") {
-        run.sessionId = message.sessionId;
-        run.resumeToken = message.resumeToken;
-      }
-      if (run.reconnect?.timer) clearTimeout(run.reconnect.timer);
-      run.reconnect = null;
-      run.live = true;
-      // Frames só com a sessão viva; os contadores sobrevivem às reconexões.
-      run.sender ??= new FrameSender({
-        get bufferedAmount() {
-          return run.socket?.bufferedAmount ?? 0;
-        },
-        get isOpen() {
-          return run.live && (run.socket?.isOpen ?? false);
-        },
-        send: (data) => run.socket?.send(data),
-      });
-    }
-    if (message.type === "session.ended") run.endedReason = message.reason;
-    if (run.live) this.watchSilence(run);
-    this.deps.store.dispatch({ type: "server", message });
-    this.deps.onServerMessage?.(message);
-  }
-
-  private watchSilence(run: Run): void {
-    if (run.silenceTimer) clearTimeout(run.silenceTimer);
-    run.silenceTimer = setTimeout(() => {
-      if (this.running === run && run.live && !run.stopping) this.onConnectionLost(run);
-    }, SERVER_SILENCE_TIMEOUT_MS);
-  }
-
-  private onSocketClose(run: Run, code: number): void {
-    if (this.running !== run) return;
-    if (run.stopping || (code === CLOSE_CODES.sessionEnded && run.endedReason !== "replaced")) {
-      this.release(run);
-      this.deps.store.dispatch({ type: "stopped" });
-      return;
-    }
-    if (code === CLOSE_CODES.sessionEnded) return this.fail(run, SESSION_REPLACED_MESSAGE);
-    if (code === CLOSE_CODES.superseded) return this.fail(run, SESSION_SUPERSEDED_MESSAGE);
-    if (run.sessionId && (code === CLOSE_CODES.sessionNotFound || code === CLOSE_CODES.protocolError)) {
-      return this.fail(run, SESSION_EXPIRED_MESSAGE);
-    }
-    // Sem sessão iniciada (ainda não há o que retomar) ou recusa do servidor: encerra como hoje.
-    if (!run.sessionId || isApplicationClose(code)) return this.fail(run, describeClose(code, run.wasOpen));
-    this.onConnectionLost(run);
-  }
-
-  /** Queda (ou conexão morta): a captura continua e o controlador tenta retomar a sessão. */
-  private onConnectionLost(run: Run): void {
-    run.live = false;
-    if (run.silenceTimer) clearTimeout(run.silenceTimer);
-    run.silenceTimer = null;
-    if (run.startTimer) clearTimeout(run.startTimer);
-    run.startTimer = null;
-    const socket = run.socket;
-    run.socket = null;
-    socket?.close();
-    if (!run.reconnect) {
-      run.reconnect = { since: Date.now(), attempt: 0, timer: null };
-      this.deps.store.dispatch({ type: "reconnecting" });
-    }
-    this.scheduleReconnect(run, run.reconnect);
-  }
-
-  private scheduleReconnect(run: Run, reconnect: Reconnect): void {
-    const delay = RECONNECT_DELAYS_MS[Math.min(reconnect.attempt, RECONNECT_DELAYS_MS.length - 1)] ?? RECONNECT_DELAYS_MS[0]!;
-    if (Date.now() + delay - reconnect.since > RESUME_WINDOW_MS) {
-      this.fail(run, SESSION_EXPIRED_MESSAGE);
-      return;
-    }
-    reconnect.attempt += 1;
-    reconnect.timer = setTimeout(() => {
-      reconnect.timer = null;
-      if (this.running !== run || run.reconnect !== reconnect || !run.sessionId || !run.resumeToken) return;
-      const { sessionId, resumeToken } = run;
-      const connected = this.connect(run, () => ({
-        type: "session.resume",
-        token: run.params.token,
-        sessionId,
-        resumeToken,
-        // Lido na hora do envio: eventos aplicados até ali não são pedidos de novo.
-        lastSeq: this.deps.store.snapshot().lastSeq,
-      }));
-      if (!connected) this.fail(run, "Endereço do servidor inválido.");
-    }, delay);
+    this.deps.store.dispatch({ type: "engine", message });
+    this.deps.onEngineMessage?.(message);
   }
 
   private onCaptureEnded(run: Run, channel: Channel): void {
     if (this.running !== run || run.stopping) return;
     if (channel === "them") {
-      run.socket?.sendJson({ type: "session.stop" });
-      this.fail(run, "A captura da aba terminou (aba fechada ou compartilhamento encerrado).");
+      this.fail(run, TAB_CAPTURE_ENDED_MESSAGE);
       return;
     }
     run.mic?.stop();
@@ -405,7 +270,7 @@ export class SessionController {
   }
 
   private fail(run: Run, message: string): void {
-    this.release(run);
+    this.release(run, "error");
     this.deps.store.dispatch({ type: "failed", message });
   }
 
@@ -416,22 +281,17 @@ export class SessionController {
     run.tab = null;
     run.mic?.stop();
     run.mic = null;
-    run.sender = null;
   }
 
-  private release(run: Run): void {
-    if (this.running === run) this.running = null;
-    if (run.startTimer) clearTimeout(run.startTimer);
-    run.startTimer = null;
+  private release(run: Run, reason: SessionEndReason): void {
     if (run.stopTimer) clearTimeout(run.stopTimer);
     run.stopTimer = null;
-    if (run.silenceTimer) clearTimeout(run.silenceTimer);
-    run.silenceTimer = null;
-    if (run.reconnect?.timer) clearTimeout(run.reconnect.timer);
-    run.reconnect = null;
     run.live = false;
     this.releaseCaptures(run);
-    run.socket?.close();
-    run.socket = null;
+    const session = run.session;
+    run.session = null;
+    // Com a execução ainda ativa: o fim da sessão (e a sugestão cancelada) chegam ao store.
+    session?.close(reason);
+    if (this.running === run) this.running = null;
   }
 }

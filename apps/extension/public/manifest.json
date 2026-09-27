@@ -1,9 +1,15 @@
 {
   "manifest_version": 3,
   "name": "SnowSpeak",
-  "version": "0.1.0",
-  "description": "Legendas EN→PT-BR e sugestões de resposta em chamadas.",
+  "version": "0.2.0",
+  "description": "Legendas em português e sugestões de resposta para chamadas em inglês, com as suas chaves do Deepgram e do OpenRouter.",
   "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": [
     "tabCapture",
     "offscreen",
@@ -11,6 +17,7 @@
     "activeTab",
     "storage"
   ],
+  "host_permissions": ["https://api.deepgram.com/*", "https://openrouter.ai/*"],
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
@@ -19,7 +26,11 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "SnowSpeak"
+    "default_title": "SnowSpeak",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "commands": {
     "suggest": {

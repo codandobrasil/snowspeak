@@ -8,6 +8,7 @@ export interface OffscreenController {
   requestSuggestion(question?: SuggestionQuestion): void;
   update(changes: SessionSettingsChanges): void;
   setMicMuted(muted: boolean): void;
+  setSuggestionsOn(on: boolean): void;
 }
 
 export type OffscreenResponse = { ok: true } | SessionState;
@@ -37,6 +38,9 @@ export function handleOffscreenMessage(
       return { ok: true };
     case "mute-mic":
       controller.setMicMuted(message.muted);
+      return { ok: true };
+    case "suggestions-on":
+      controller.setSuggestionsOn(message.on);
       return { ok: true };
     case "clear":
       store.dispatch({ type: "clear" });

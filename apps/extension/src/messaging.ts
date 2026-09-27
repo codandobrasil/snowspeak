@@ -15,6 +15,7 @@ export type OffscreenMessage =
   | { target: "offscreen"; type: "suggest"; question?: SuggestionQuestion }
   | { target: "offscreen"; type: "clear" }
   | { target: "offscreen"; type: "mute-mic"; muted: boolean }
+  | { target: "offscreen"; type: "suggestions-on"; on: boolean }
   | { target: "offscreen"; type: "update"; changes: SessionSettingsChanges };
 
 export type SidePanelMessage = { target: "sidepanel"; type: "state"; state: SessionState };

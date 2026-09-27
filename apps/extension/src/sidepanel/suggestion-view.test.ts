@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SuggestionState } from "../offscreen/session-store";
-import { suggestionCard } from "./suggestion-view";
+import { SUGGESTIONS_DISABLED_NOTICE, suggestionCard } from "./suggestion-view";
 
 const suggestion = (overrides: Partial<SuggestionState>): SuggestionState => ({
   requestId: "r1",
@@ -57,5 +57,11 @@ describe("suggestionCard", () => {
     expect(error("provider")).toBe("Não foi possível gerar a sugestão agora (serviço de IA indisponível).");
     expect(error("invalid_output")).toBe("A IA respondeu fora do formato. Tente de novo (Alt+S).");
     expect(error("cancelled")).toBe("Sugestão cancelada.");
+    expect(error("unauthorized")).toBe("O OpenRouter recusou a chave. Confira em Configurações.");
+  });
+
+  it("avisa que as sugestões estão desligadas sem a chave do OpenRouter", () => {
+    expect(suggestionCard(null, null, false)).toMatchObject({ visible: true, label: "", en: "", notice: SUGGESTIONS_DISABLED_NOTICE });
+    expect(SUGGESTIONS_DISABLED_NOTICE).toBe("Sugestões desligadas: informe a chave do OpenRouter.");
   });
 });

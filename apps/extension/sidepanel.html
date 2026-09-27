@@ -8,13 +8,20 @@
   <body>
     <header>
       <h1>SnowSpeak</h1>
-      <span id="status" class="status">Parado</span>
+      <span class="header-right">
+        <span id="status" class="status">Parado</span>
+        <button id="pop-out" class="link" title="Abrir o painel numa janela que pode ser arrastada para outro monitor">Abrir em janela</button>
+      </span>
     </header>
 
     <details id="settings" class="settings" open>
       <summary>Configurações</summary>
-      <label>Servidor <input id="serverUrl" type="url" /></label>
-      <label>Chave de acesso <input id="token" type="password" autocomplete="off" /></label>
+      <label>Chave do Deepgram <input id="deepgramKey" type="password" autocomplete="off" spellcheck="false" /></label>
+      <p class="hint">Obrigatória. Gere em <a href="https://console.deepgram.com/" target="_blank" rel="noopener">console.deepgram.com</a> → API Keys.</p>
+      <label>Chave do OpenRouter (opcional) <input id="openRouterKey" type="password" autocomplete="off" spellcheck="false" /></label>
+      <p class="hint">Sem ela, a legenda funciona, mas não há sugestões de resposta. Gere em <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
+      <label>Modelo das sugestões <input id="suggestionModel" type="text" autocomplete="off" spellcheck="false" /></label>
+      <p class="key-check"><button id="check-keys" type="button">Testar chaves</button> <span id="key-check-result" class="hint" aria-live="polite"></span></p>
       <label>
         Modo
         <select id="mode">
@@ -27,7 +34,7 @@
       <label>Contexto <textarea id="context" rows="3"></textarea></label>
       <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
       <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
-      <p class="hint">Currículo e vaga ficam salvos só neste navegador; vão ao servidor e ao provedor de IA apenas para gerar sugestões.</p>
+      <p class="hint">Suas chaves, currículo e vaga ficam só neste navegador. O áudio vai direto ao Deepgram; a conversa, o currículo e a vaga vão direto ao OpenRouter apenas para gerar sugestões.</p>
     </details>
 
     <div class="actions">
@@ -36,6 +43,12 @@
       <button id="skip-translator" hidden>Continuar só em inglês</button>
       <button id="portuguese-only" class="toggle" aria-pressed="false" title="Mostrar só a tradução das falas dos participantes">Só português</button>
       <button id="mute-mic" class="mute" aria-pressed="false" title="Parar de enviar o seu microfone (nada da sua voz sai do computador)">Microfone</button>
+      <select id="response-length" title="Tamanho da resposta sugerida">
+        <option value="short">Resposta curta</option>
+        <option value="medium">Resposta média</option>
+        <option value="long">Resposta longa</option>
+      </select>
+      <button id="suggestions-toggle" class="toggle" aria-pressed="true" title="Ligar ou desligar as sugestões de resposta">Sugestões ligadas</button>
       <button id="clear" title="Apagar a legenda e a sugestão (a fala em andamento continua)">Limpar</button>
       <span class="dots" aria-hidden="true">
         <span class="dot" data-dot="them" title="Participantes"></span>

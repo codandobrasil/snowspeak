@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ServerMessage } from "@snowspeak/shared";
+import type { EngineMessage } from "@snowspeak/shared";
 import { SessionStore } from "./session-store";
 import {
   MAX_PENDING_TRANSLATIONS,
@@ -10,8 +10,8 @@ import {
 } from "./translation-queue";
 
 let seq = 0;
-const started = (sessionId: string): ServerMessage => ({ v: 1, type: "session.started", sessionId, resumeToken: "r" });
-const segment = (sessionId: string, text: string): ServerMessage => ({
+const started = (sessionId: string): EngineMessage => ({ v: 1, type: "session.started", sessionId });
+const segment = (sessionId: string, text: string): EngineMessage => ({
   v: 1,
   sessionId,
   seq: ++seq,
@@ -22,7 +22,7 @@ const segment = (sessionId: string, text: string): ServerMessage => ({
   segmentIdx: 0,
   text,
 });
-const sentence = (sessionId: string, sentenceIdx: number, text: string): ServerMessage => ({
+const sentence = (sessionId: string, sentenceIdx: number, text: string): EngineMessage => ({
   v: 1,
   sessionId,
   seq: ++seq,
@@ -45,8 +45,8 @@ function setup(provide: () => Promise<SentenceTranslator>, now: () => number = (
   const store = new SessionStore();
   const queue = new TranslationQueue(provide, store, { now });
   // No offscreen, o controlador aplica a mensagem ao store e depois a repassa à fila.
-  const deliver = (message: ServerMessage) => {
-    store.dispatch({ type: "server", message });
+  const deliver = (message: EngineMessage) => {
+    store.dispatch({ type: "engine", message });
     queue.handle(message);
   };
   deliver(started("s1"));

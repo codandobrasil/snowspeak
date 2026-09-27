@@ -1,21 +1,44 @@
-import { MAX_CONTEXT_CHARS, MAX_JOB_CHARS, MAX_PROFILE_CHARS, MODES, type Mode } from "@snowspeak/shared";
+import { MAX_CONTEXT_CHARS, MAX_JOB_CHARS, MAX_PROFILE_CHARS, MODES, RESPONSE_LENGTHS, type Mode, type ResponseLength } from "@snowspeak/shared";
+import { DEFAULT_SUGGESTION_MODEL } from "@snowspeak/engine";
 import type { PanelStartParams, RuntimeMessage, StartResponse } from "../messaging";
 import { initialState, type Caption, type SessionState, type SessionStatus } from "../offscreen/session-store";
 import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";
 import { prepareChromeTranslator } from "../translation/chrome-translator";
 import { captionView } from "./caption-view";
-import { captionEmphasis, captionLines, columnTitles, isCaptureMode, selectableQuestion, timeline, type CaptionEmphasis } from "./panel-view";
+import {
+  captionEmphasis,
+  captionLines,
+  captureTabFromUrl,
+  columnTitles,
+  isCaptureMode,
+  selectableQuestion,
+  timeline,
+  visibleCaptions,
+  type CaptionEmphasis,
+} from "./panel-view";
+import { checkDeepgramKey, checkOpenRouterKey, describeKeyCheck } from "./key-check";
 import { suggestionCard } from "./suggestion-view";
 import { waitForTranslator } from "./translator-wait";
 
-const DEFAULT_SETTINGS: PanelStartParams = { serverUrl: "ws://localhost:8787/ws", token: "", mode: "work", context: "", profile: "", job: "" };
+const DEFAULT_SETTINGS: PanelStartParams = {
+  deepgramKey: "",
+  openRouterKey: "",
+  suggestionModel: DEFAULT_SUGGESTION_MODEL,
+  responseLength: "medium",
+  suggestionsOn: true,
+  mode: "work",
+  context: "",
+  profile: "",
+  job: "",
+};
+// Campos da versão com servidor, apagados do storage na primeira abertura.
+const LEGACY_SETTINGS = ["serverUrl", "token"];
 const DEFAULT_PREFERENCES = { portugueseOnly: false, widthHintDismissed: false };
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
   idle: "Parado",
   starting: "Iniciando…",
   running: "Capturando",
-  reconnecting: "Reconectando…",
   stopping: "Finalizando…",
   error: "Erro",
 };
@@ -23,13 +46,17 @@ const STATUS_LABELS: Record<SessionStatus, string> = {
 const SKIPPED_TRANSLATOR_NOTICE = "O tradutor do Chrome continua baixando; as frases ficam em inglês até ele ficar pronto.";
 
 const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
-const serverUrlInput = byId<HTMLInputElement>("serverUrl");
-const tokenInput = byId<HTMLInputElement>("token");
+const deepgramKeyInput = byId<HTMLInputElement>("deepgramKey");
+const openRouterKeyInput = byId<HTMLInputElement>("openRouterKey");
+const suggestionModelInput = byId<HTMLInputElement>("suggestionModel");
 const modeSelect = byId<HTMLSelectElement>("mode");
 const contextInput = byId<HTMLTextAreaElement>("context");
 const profileInput = byId<HTMLTextAreaElement>("profile");
 const jobInput = byId<HTMLTextAreaElement>("job");
 const suggestButton = byId<HTMLButtonElement>("suggest");
+const responseLengthSelect = byId<HTMLSelectElement>("response-length");
+const suggestionsToggle = byId<HTMLButtonElement>("suggestions-toggle");
+const popOutButton = byId<HTMLButtonElement>("pop-out");
 const suggestionItem = byId<HTMLLIElement>("suggestion-item");
 const suggestionLabel = byId<HTMLSpanElement>("suggestion-label");
 const suggestionPending = byId<HTMLSpanElement>("suggestion-pending");
@@ -57,6 +84,8 @@ const clearButton = byId<HTMLButtonElement>("clear");
 const muteMicButton = byId<HTMLButtonElement>("mute-mic");
 const widthHint = byId<HTMLParagraphElement>("width-hint");
 const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
+const checkKeysButton = byId<HTMLButtonElement>("check-keys");
+const keyCheckResult = byId<HTMLSpanElement>("key-check-result");
 
 contextInput.maxLength = MAX_CONTEXT_CHARS;
 profileInput.maxLength = MAX_PROFILE_CHARS;
@@ -70,6 +99,14 @@ let startAttempt = 0;
 let translatorDownload: AbortController | null = null;
 let skipTranslatorWait: (() => void) | null = null;
 let portugueseOnly = false;
+// Botão Sugestões (preferência salva); durante a sessão vale o estado do offscreen.
+let suggestionsOn = true;
+// Janela avulsa: a aba a capturar vem no endereço; no painel lateral, é a aba ativa da janela.
+const captureTabId = captureTabFromUrl(location.search);
+
+function suggestionsActive(): boolean {
+  return isCaptureMode(lastState.status, false) ? lastState.suggestionsOn : suggestionsOn;
+}
 
 const captionItems = new Map<string, HTMLLIElement>();
 
@@ -89,7 +126,7 @@ function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: Captio
   item.classList.toggle("previous", emphasis === "previous");
   item.classList.toggle("answered", answered);
   // Pergunta terminada: clicar (ou Enter) pede a resposta para ela.
-  const selectable = selectableQuestion(caption) !== null;
+  const selectable = selectableQuestion(caption) !== null && lastState.suggestionsEnabled && suggestionsActive();
   item.classList.toggle("selectable", selectable);
   if (selectable) {
     item.tabIndex = 0;
@@ -115,7 +152,7 @@ function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: Captio
 }
 
 function renderCaptions(state: SessionState, suggestionVisible: boolean): void {
-  const { captions } = state;
+  const captions = visibleCaptions(state.captions);
   const nearBottom = captionsList.scrollHeight - captionsList.scrollTop - captionsList.clientHeight < 60;
   const answeredId = state.suggestion?.basedOnUtteranceId ?? null;
   const alive = new Set<string>();
@@ -149,15 +186,21 @@ function renderCaptions(state: SessionState, suggestionVisible: boolean): void {
 
 function render(): void {
   const state = lastState;
-  const active = pendingStart || state.status === "starting" || state.status === "running" || state.status === "reconnecting";
+  const active = pendingStart || state.status === "starting" || state.status === "running";
   document.body.classList.toggle("capturing", isCaptureMode(state.status, pendingStart));
   portugueseOnlyButton.setAttribute("aria-pressed", String(portugueseOnly));
+  const suggestionsShown = suggestionsActive();
+  suggestionsToggle.setAttribute("aria-pressed", String(suggestionsShown));
+  suggestionsToggle.textContent = suggestionsShown ? "Sugestões ligadas" : "Sugestões desligadas";
+  suggestionsToggle.disabled = !lastState.suggestionsEnabled && isCaptureMode(lastState.status, false);
+  // Na janela avulsa não há o que destacar de novo, nem borda para arrastar.
+  popOutButton.hidden = captureTabId !== undefined;
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
   startButton.disabled = active || state.status === "stopping";
   stopButton.disabled = !active;
   muteMicButton.setAttribute("aria-pressed", String(state.micMuted));
   muteMicButton.textContent = state.micMuted ? "Microfone desligado" : "Microfone";
-  muteMicButton.disabled = state.mic !== "active" || (state.status !== "running" && state.status !== "reconnecting");
+  muteMicButton.disabled = state.mic !== "active" || state.status !== "running";
   clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";
@@ -184,7 +227,7 @@ function render(): void {
 
 /** Preenche o cartão da sugestão; devolve se ele está visível. */
 function renderSuggestion(state: SessionState): boolean {
-  const card = suggestionCard(state.suggestion, state.suggestionNotice);
+  const card = suggestionCard(state.suggestion, state.suggestionNotice, state.suggestionsEnabled);
   suggestionItem.hidden = !card.visible;
   suggestionLabel.textContent = card.label;
   suggestionPending.hidden = !card.pending;
@@ -195,7 +238,7 @@ function renderSuggestion(state: SessionState): boolean {
   suggestionNotice.hidden = !card.notice;
   suggestionNotice.textContent = card.notice ?? "";
   suggestionLabel.hidden = !card.label;
-  suggestButton.disabled = state.status !== "running";
+  suggestButton.disabled = state.status !== "running" || !state.suggestionsEnabled || !suggestionsActive();
   return card.visible;
 }
 
@@ -216,20 +259,15 @@ function showLocalNotice(message: string | null): void {
   localNoticeLabel.textContent = message ?? "";
 }
 
-function isWebSocketUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "ws:" || url.protocol === "wss:";
-  } catch {
-    return false;
-  }
-}
-
 function readForm(): PanelStartParams {
   const mode = MODES.includes(modeSelect.value as Mode) ? (modeSelect.value as Mode) : "work";
   return {
-    serverUrl: serverUrlInput.value.trim(),
-    token: tokenInput.value.trim(),
+    // Chaves coladas costumam vir com espaço ou quebra de linha.
+    deepgramKey: deepgramKeyInput.value.trim(),
+    openRouterKey: openRouterKeyInput.value.trim(),
+    suggestionModel: suggestionModelInput.value.trim() || DEFAULT_SUGGESTION_MODEL,
+    responseLength: RESPONSE_LENGTHS.includes(responseLengthSelect.value as ResponseLength) ? (responseLengthSelect.value as ResponseLength) : "medium",
+    suggestionsOn,
     mode,
     context: contextInput.value,
     profile: profileInput.value,
@@ -238,9 +276,13 @@ function readForm(): PanelStartParams {
 }
 
 async function loadSettings(): Promise<void> {
+  await chrome.storage.local.remove(LEGACY_SETTINGS);
   const settings = (await chrome.storage.local.get(DEFAULT_SETTINGS)) as PanelStartParams;
-  serverUrlInput.value = settings.serverUrl;
-  tokenInput.value = settings.token;
+  deepgramKeyInput.value = settings.deepgramKey;
+  openRouterKeyInput.value = settings.openRouterKey;
+  suggestionModelInput.value = settings.suggestionModel;
+  responseLengthSelect.value = settings.responseLength;
+  suggestionsOn = settings.suggestionsOn;
   modeSelect.value = settings.mode;
   contextInput.value = settings.context;
   profileInput.value = settings.profile;
@@ -251,7 +293,7 @@ async function loadSettings(): Promise<void> {
 async function loadPreferences(): Promise<void> {
   const preferences = (await chrome.storage.local.get(DEFAULT_PREFERENCES)) as typeof DEFAULT_PREFERENCES;
   portugueseOnly = preferences.portugueseOnly;
-  widthHint.hidden = preferences.widthHintDismissed;
+  widthHint.hidden = preferences.widthHintDismissed || captureTabId !== undefined;
   render();
 }
 
@@ -292,12 +334,9 @@ startButton.addEventListener("click", async () => {
   if (pendingStart) return;
   showLocalError(null);
   const settings = readForm();
-  if (!isWebSocketUrl(settings.serverUrl)) {
-    showLocalError("Endereço do servidor inválido (use ws:// ou wss://).");
-    return;
-  }
-  if (!settings.token) {
-    showLocalError("Informe a chave de acesso.");
+  if (!settings.deepgramKey) {
+    showLocalError("Informe a chave do Deepgram em Configurações.");
+    settingsPanel.open = true;
     return;
   }
 
@@ -321,7 +360,7 @@ startButton.addEventListener("click", async () => {
       target: "background",
       type: "start",
       params: settings,
-      tabId: activeTab?.id,
+      tabId: captureTabId ?? activeTab?.id,
     } satisfies RuntimeMessage)) as StartResponse | undefined;
     if (!response?.ok && !response?.cancelled) showLocalError(`Falha ao iniciar: ${response?.error ?? "sem resposta"}`);
   } catch (error) {
@@ -358,7 +397,7 @@ clearButton.addEventListener("click", () => {
 });
 
 function requestSuggestionFor(target: EventTarget | null): void {
-  if (lastState.status !== "running" || !(target instanceof Element)) return;
+  if (lastState.status !== "running" || !lastState.suggestionsEnabled || !suggestionsActive() || !(target instanceof Element)) return;
   const id = target.closest<HTMLElement>("li.caption.selectable")?.dataset.utteranceId;
   const caption = lastState.captions.find((c) => c.utteranceId === id);
   const question = caption ? selectableQuestion(caption) : null;
@@ -382,11 +421,27 @@ function onSettingsChanged(): void {
   const settings = readForm();
   void chrome.storage.local.set(settings);
   if (lastState.status !== "running") return;
-  const changes = { mode: settings.mode, context: settings.context, profile: settings.profile, job: settings.job };
+  const changes = { mode: settings.mode, context: settings.context, profile: settings.profile, job: settings.job, responseLength: settings.responseLength };
   chrome.runtime.sendMessage({ target: "offscreen", type: "update", changes } satisfies RuntimeMessage).catch(() => undefined);
 }
-for (const field of [modeSelect, contextInput, profileInput, jobInput]) field.addEventListener("change", onSettingsChanged);
+for (const field of [modeSelect, contextInput, profileInput, jobInput, deepgramKeyInput, openRouterKeyInput, suggestionModelInput, responseLengthSelect]) {
+  field.addEventListener("change", onSettingsChanged);
+}
 modeSelect.addEventListener("change", render);
+
+suggestionsToggle.addEventListener("click", () => {
+  suggestionsOn = !suggestionsActive();
+  void chrome.storage.local.set({ suggestionsOn });
+  chrome.runtime.sendMessage({ target: "offscreen", type: "suggestions-on", on: suggestionsOn } satisfies RuntimeMessage).catch(() => undefined);
+  render();
+});
+
+popOutButton.addEventListener("click", async () => {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = captureTabId ?? activeTab?.id;
+  if (tabId === undefined) return;
+  await chrome.windows.create({ url: chrome.runtime.getURL(`sidepanel.html?tab=${tabId}`), type: "popup", width: 480, height: 860 });
+});
 
 portugueseOnlyButton.addEventListener("click", () => {
   portugueseOnly = !portugueseOnly;
@@ -401,6 +456,15 @@ dismissWidthHintButton.addEventListener("click", () => {
 
 skipTranslatorButton.addEventListener("click", () => {
   skipTranslatorWait?.();
+});
+
+checkKeysButton.addEventListener("click", async () => {
+  const { deepgramKey, openRouterKey } = readForm();
+  checkKeysButton.disabled = true;
+  keyCheckResult.textContent = "Testando…";
+  const [deepgram, openRouter] = await Promise.all([checkDeepgramKey(deepgramKey), checkOpenRouterKey(openRouterKey)]);
+  keyCheckResult.textContent = `${describeKeyCheck("Deepgram", deepgram)} · ${describeKeyCheck("OpenRouter", openRouter)}`;
+  checkKeysButton.disabled = false;
 });
 
 grantMicButton.addEventListener("click", () => {
