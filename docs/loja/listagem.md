@@ -17,7 +17,9 @@ O SnowSpeak ajuda quem participa de reuniões e entrevistas em inglês.
 
 - Legenda ao vivo: o que os participantes dizem aparece em inglês e, logo abaixo de cada frase, em português.
 - Suas falas aparecem ao lado, para você acompanhar a conversa inteira.
-- Sugestões de resposta: quando alguém faz uma pergunta, o SnowSpeak sugere uma resposta curta em inglês, com a tradução, usando o seu currículo e a descrição da vaga (modo Entrevista) ou o contexto que você informar. Você também pode clicar numa pergunta ou apertar Alt+S para pedir a sugestão.
+- Sugestões de resposta: clique na pergunta do participante (ou aperte Alt+S) e o SnowSpeak sugere uma resposta em inglês, com a tradução, usando o seu currículo e a descrição da vaga (modo Entrevista) ou o contexto que você informar. Você escolhe o tamanho (curta, média ou longa) e pode desligar as sugestões quando quiser.
+- Interjeições como "hmm" e "uh-huh" ficam fora da legenda.
+- O painel pode abrir numa janela própria, que vai para outro monitor.
 - Funciona em qualquer aba do Chrome: Google Meet, Zoom e Teams no navegador, vídeos.
 
 Como funciona: o SnowSpeak usa as suas próprias chaves de API. A transcrição é feita pelo Deepgram (chave obrigatória; a conta nova vem com crédito) e as sugestões pelo OpenRouter (chave opcional). A tradução roda no próprio Chrome. Não há servidor do SnowSpeak no meio: o áudio e o texto vão direto do seu navegador para esses serviços, e as chaves ficam só no seu Chrome.
