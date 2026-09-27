@@ -50,6 +50,21 @@ A legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquan
 - [ ] Nenhuma chave aparece no console do offscreen (`chrome://extensions` → Inspecionar visualizações → offscreen.html) nem em URLs na aba Rede.
 - [ ] Repetir numa chamada real do Google Meet.
 
+## Publicação na Chrome Web Store
+
+```bash
+pnpm --filter @snowspeak/extension package
+```
+
+Gera `apps/extension/snowspeak-<versão>.zip`. Para enviar:
+
+1. Publique `docs/loja/politica-de-privacidade.md` num endereço público e guarde a URL.
+2. Na conta de desenvolvedor da Chrome Web Store, crie o item e envie o zip.
+3. Preencha a listagem, as permissões e as práticas de dados com `docs/loja/listagem.md`, e envie as capturas de tela listadas lá.
+4. A cada versão nova, aumente `version` em `apps/extension/public/manifest.json` e `apps/extension/package.json` e gere o zip de novo.
+
+- [ ] Carregar o conteúdo do zip descompactado (Carregar sem compactação) e repetir os itens principais do roteiro BYOK: ícone na barra, Testar chaves, uma sessão com legenda e sugestão.
+
 ## Roteiros anteriores (versão com servidor)
 
 Os roteiros abaixo foram validados na versão com servidor e ficam como histórico.
