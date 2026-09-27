@@ -56,6 +56,8 @@ export interface SessionState {
   channels: Record<Channel, ChannelView>;
   /** Canais cujo Deepgram caiu e está reconectando. */
   sttReconnecting: Record<Channel, boolean>;
+  /** Aviso de um canal cujo Deepgram não voltou; tem prioridade sobre o de reconexão. */
+  sttLost: string | null;
   captions: Caption[];
   suggestion: SuggestionState | null;
   /** Aviso curto de pedido de sugestão recusado; some quando a sugestão atual avança. */
@@ -97,6 +99,7 @@ export function initialState(): SessionState {
     lastSeq: 0,
     channels: { them: emptyChannel(), me: emptyChannel() },
     sttReconnecting: { them: false, me: false },
+    sttLost: null,
     captions: [],
     suggestion: null,
     suggestionNotice: null,
@@ -110,6 +113,15 @@ function withChannel(state: SessionState, channel: Channel, patch: Partial<Chann
 
 function silenced(state: SessionState): SessionState["channels"] {
   return { them: { ...state.channels.them, level: 0 }, me: { ...state.channels.me, level: 0 } };
+}
+
+/** Sessão encerrada: não há mais reconexão em andamento, e o aviso dela sai da tela. */
+function withoutReconnecting(state: SessionState): SessionState {
+  return {
+    ...state,
+    sttReconnecting: { them: false, me: false },
+    notice: state.notice === STT_RECONNECTING_NOTICE ? null : state.notice,
+  };
 }
 
 function withCaption(state: SessionState, channel: Channel, utteranceId: string, update: (caption: Caption) => Caption): SessionState {
@@ -150,7 +162,7 @@ function updateSentence(
 function applyEngineMessage(state: SessionState, message: EngineMessage): SessionState {
   if (!isEngineEvent(message)) {
     if (message.type === "session.started") return { ...state, status: "running", sessionId: message.sessionId, lastSeq: 0 };
-    return { ...state, status: "idle", channels: silenced(state) };
+    return withoutReconnecting({ ...state, status: "idle", channels: silenced(state) });
   }
   if (message.seq <= state.lastSeq) return state;
   const next = { ...state, lastSeq: message.seq };
@@ -174,11 +186,18 @@ function applyEngineMessage(state: SessionState, message: EngineMessage): Sessio
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
     case "stt.status": {
       const sttReconnecting = { ...next.sttReconnecting, [message.channel]: message.state === "reconnecting" };
+      // Um canal que não voltou continua sendo o aviso mais importante.
+      if (next.sttLost) return { ...next, sttReconnecting, notice: next.sttLost };
       if (sttReconnecting.them || sttReconnecting.me) return { ...next, sttReconnecting, notice: STT_RECONNECTING_NOTICE };
       // Só apaga o aviso da reconexão; avisos de outra origem ficam.
       return { ...next, sttReconnecting, notice: next.notice === STT_RECONNECTING_NOTICE ? null : next.notice };
     }
     case "error":
+      if (message.scope === "stt" && message.channel) {
+        // O canal desistiu de reconectar: sai da reconexão e o aviso passa a ser o da perda.
+        const sttReconnecting = { ...next.sttReconnecting, [message.channel]: false };
+        return { ...next, sttReconnecting, sttLost: message.message, notice: message.message };
+      }
       return { ...next, notice: message.message };
     case "suggestion.started":
       return {
@@ -249,9 +268,9 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
     case "stopping":
       return { ...state, status: "stopping", channels: silenced(state) };
     case "failed":
-      return { ...state, status: "error", errorMessage: action.message, channels: silenced(state) };
+      return withoutReconnecting({ ...state, status: "error", errorMessage: action.message, channels: silenced(state) });
     case "stopped":
-      return { ...state, status: "idle", channels: silenced(state) };
+      return withoutReconnecting({ ...state, status: "idle", channels: silenced(state) });
   }
 }
 

@@ -115,6 +115,36 @@ describe("reduce", () => {
     expect(initialState().suggestionsEnabled).toBe(true);
     expect(run({ type: "starting", suggestionsEnabled: false }).suggestionsEnabled).toBe(false);
   });
+  it("um canal que desiste sai da reconexão e o aviso de reconexão não esconde o erro", () => {
+    const lost = "A transcrição dos participantes parou: não foi possível reconectar ao Deepgram.";
+    const status = (seq: number, channel: "them" | "me", state: "reconnecting" | "ok"): StoreAction => ({
+      type: "engine",
+      message: { v: 1, sessionId: "s1", seq, ts: 0, type: "stt.status", channel, state },
+    });
+    const state = run(
+      { type: "engine", message: started },
+      status(1, "them", "reconnecting"),
+      { type: "engine", message: { v: 1, sessionId: "s1", seq: 2, ts: 0, type: "error", scope: "stt", code: "stt_connection_lost", retryable: false, channel: "them", message: lost } },
+      status(3, "me", "reconnecting"),
+    );
+    expect(state.notice).toBe(lost);
+    const recovered = reduce(state, status(4, "me", "ok"));
+    expect(recovered.sttReconnecting).toEqual({ them: false, me: false });
+    expect(recovered.notice).toBe(lost);
+  });
+
+  it("parar, falhar ou encerrar durante a reconexão apaga o aviso de reconexão", () => {
+    const reconnecting = run(
+      { type: "engine", message: started },
+      { type: "engine", message: { v: 1, sessionId: "s1", seq: 1, ts: 0, type: "stt.status", channel: "them", state: "reconnecting" } },
+    );
+    const ended: StoreAction = { type: "engine", message: { v: 1, type: "session.ended", sessionId: "s1", reason: "stopped" } };
+    for (const action of [{ type: "stopped" } as StoreAction, { type: "failed", message: "x" } as StoreAction, ended]) {
+      const state = reduce(reconnecting, action);
+      expect(state.notice).toBeNull();
+      expect(state.sttReconnecting).toEqual({ them: false, me: false });
+    }
+  });
 });
 
 describe("SessionStore", () => {
