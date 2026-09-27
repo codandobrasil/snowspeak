@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ServerMessage } from "@snowspeak/shared";
-import { BUSY_SUGGESTION_NOTICE, MAX_CAPTIONS, RATE_LIMITED_SUGGESTION_NOTICE, SessionStore, initialState, reduce, type SessionState, type StoreAction } from "./session-store";
+import { BUSY_SUGGESTION_NOTICE, MAX_CAPTIONS, RATE_LIMITED_SUGGESTION_NOTICE, STT_RECONNECTING_NOTICE, SessionStore, initialState, reduce, type SessionState, type StoreAction } from "./session-store";
 
 const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
 const partial = (seq: number, text: string): ServerMessage => ({
@@ -111,6 +111,27 @@ describe("reduce", () => {
     expect(ended.status).toBe("idle");
     expect(ended.captions[0]?.partial).toBe("último");
     expect(reduce(ended, { type: "stopped" }).status).toBe("idle");
+  });
+
+  it("mostra o aviso de reconexão do Deepgram enquanto algum canal reconecta", () => {
+    const status = (seq: number, channel: "them" | "me", state: "reconnecting" | "ok"): StoreAction => ({
+      type: "server",
+      message: { v: 1, sessionId: "s1", seq, ts: 0, type: "stt.status", channel, state },
+    });
+    const state = run({ type: "server", message: started }, status(1, "them", "reconnecting"), status(2, "me", "reconnecting"), status(3, "them", "ok"));
+    expect(state.notice).toBe(STT_RECONNECTING_NOTICE);
+    expect(state.sttReconnecting).toEqual({ them: false, me: true });
+    expect(reduce(state, status(4, "me", "ok")).notice).toBeNull();
+  });
+
+  it("a volta do Deepgram não apaga um aviso de outra origem", () => {
+    const state = run(
+      { type: "server", message: started },
+      { type: "server", message: { v: 1, sessionId: "s1", seq: 1, ts: 0, type: "stt.status", channel: "them", state: "reconnecting" } },
+      { type: "notice", message: "Tradução indisponível." },
+      { type: "server", message: { v: 1, sessionId: "s1", seq: 2, ts: 0, type: "stt.status", channel: "them", state: "ok" } },
+    );
+    expect(state.notice).toBe("Tradução indisponível.");
   });
 });
 

@@ -7,6 +7,7 @@ export type MicStatus = "unknown" | "active" | "denied";
 export const MAX_CAPTIONS = 200;
 export const BUSY_SUGGESTION_NOTICE = "Aguarde a sugestão atual terminar.";
 export const RATE_LIMITED_SUGGESTION_NOTICE = "Espere um instante para pedir outra sugestão.";
+export const STT_RECONNECTING_NOTICE = "Reconectando ao Deepgram…";
 
 export interface SuggestionState {
   requestId: string;
@@ -54,6 +55,8 @@ export interface SessionState {
   micMuted: boolean;
   lastSeq: number;
   channels: Record<Channel, ChannelView>;
+  /** Canais cujo Deepgram caiu e está reconectando. */
+  sttReconnecting: Record<Channel, boolean>;
   captions: Caption[];
   suggestion: SuggestionState | null;
   /** Aviso curto de pedido de sugestão recusado; some quando a sugestão atual avança. */
@@ -95,6 +98,7 @@ export function initialState(): SessionState {
     micMuted: false,
     lastSeq: 0,
     channels: { them: emptyChannel(), me: emptyChannel() },
+    sttReconnecting: { them: false, me: false },
     captions: [],
     suggestion: null,
     suggestionNotice: null,
@@ -178,6 +182,12 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
       }));
     case "audio.gap":
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
+    case "stt.status": {
+      const sttReconnecting = { ...next.sttReconnecting, [message.channel]: message.state === "reconnecting" };
+      if (sttReconnecting.them || sttReconnecting.me) return { ...next, sttReconnecting, notice: STT_RECONNECTING_NOTICE };
+      // Só apaga o aviso da reconexão; avisos de outra origem ficam.
+      return { ...next, sttReconnecting, notice: next.notice === STT_RECONNECTING_NOTICE ? null : next.notice };
+    }
     case "error":
       return { ...next, notice: message.message };
     case "suggestion.started":

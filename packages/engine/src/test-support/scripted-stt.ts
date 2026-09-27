@@ -2,6 +2,8 @@ import type { Channel } from "@snowspeak/shared";
 import type { SttFactory, SttResult } from "../stt/types";
 
 export interface ScriptedChannel {
+  /** O "provedor" abriu a conexão. */
+  open(): void;
   emit(result: SttResult): void;
   fail(): void;
   writes: number;
@@ -11,10 +13,18 @@ export interface ScriptedChannel {
   onFinalize: (() => void) | null;
 }
 
-export function createScriptedSttHub(): { factory: SttFactory; channel(channel: Channel): ScriptedChannel } {
+export function createScriptedSttHub(): {
+  factory: SttFactory;
+  /** O stream mais recente do canal. */
+  channel(channel: Channel): ScriptedChannel;
+  /** Quantos streams o canal já abriu (a primeira conexão e as reconexões). */
+  streamsCreated(channel: Channel): number;
+} {
   const channels = new Map<Channel, ScriptedChannel>();
+  const created = new Map<Channel, number>();
   const factory: SttFactory = (channel, callbacks) => {
     const state: ScriptedChannel = {
+      open: () => callbacks.onOpen?.(),
       emit: (result) => callbacks.onResult(result),
       fail: () => callbacks.onError(new Error("falha roteirizada")),
       writes: 0,
@@ -23,6 +33,7 @@ export function createScriptedSttHub(): { factory: SttFactory; channel(channel: 
       onFinalize: null,
     };
     channels.set(channel, state);
+    created.set(channel, (created.get(channel) ?? 0) + 1);
     return {
       droppedFrames: 0,
       write: () => {
@@ -44,5 +55,6 @@ export function createScriptedSttHub(): { factory: SttFactory; channel(channel: 
       if (!state) throw new Error(`nenhum STT aberto para ${channel}`);
       return state;
     },
+    streamsCreated: (channel) => created.get(channel) ?? 0,
   };
 }

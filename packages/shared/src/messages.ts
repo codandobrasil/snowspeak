@@ -168,6 +168,16 @@ const audioGapBody = z.object({
   reason: z.enum(AUDIO_GAP_REASONS),
 });
 
+export const STT_STATES = ["reconnecting", "ok"] as const;
+export type SttState = (typeof STT_STATES)[number];
+
+// Conexão com o Deepgram de um canal: caiu e está reconectando, ou voltou.
+const sttStatusBody = z.object({
+  type: z.literal("stt.status"),
+  channel: channelSchema,
+  state: z.enum(STT_STATES),
+});
+
 const errorBody = z.object({
   type: z.literal("error"),
   scope: z.enum(ERROR_SCOPES),
@@ -217,6 +227,7 @@ const serverMessageSchema = z.discriminatedUnion("type", [
   utteranceEndBody.extend(envelopeShape),
   sentenceReadyBody.extend(envelopeShape),
   audioGapBody.extend(envelopeShape),
+  sttStatusBody.extend(envelopeShape),
   errorBody.extend(envelopeShape),
   suggestionStartedBody.extend(envelopeShape),
   suggestionDeltaBody.extend(envelopeShape),
@@ -244,6 +255,7 @@ export type ServerEventBody =
   | z.infer<typeof utteranceEndBody>
   | z.infer<typeof sentenceReadyBody>
   | z.infer<typeof audioGapBody>
+  | z.infer<typeof sttStatusBody>
   | z.infer<typeof errorBody>
   | z.infer<typeof suggestionStartedBody>
   | z.infer<typeof suggestionDeltaBody>
