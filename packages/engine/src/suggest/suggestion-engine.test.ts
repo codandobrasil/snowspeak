@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EngineEventBody } from "@snowspeak/shared";
+import type { EngineEventBody, ResponseLength } from "@snowspeak/shared";
 import type { ChatMessage } from "./prompt";
 import { SuggesterAuthError, type Suggester } from "./openrouter";
 import { MANUAL_MIN_INTERVAL_MS, SuggestionEngine } from "./suggestion-engine";
@@ -25,14 +25,15 @@ const hanging: Script = async function* (_m, signal) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
-function setup(script: Script, options: { now?: () => number; timeoutMs?: number } = {}) {
+function setup(script: Script, options: { now?: () => number; timeoutMs?: number; responseLength?: ResponseLength } = {}) {
   const events: EngineEventBody[] = [];
   const suggester = scripted(script);
   const engine = new SuggestionEngine({
     suggester,
     emit: (body) => events.push(body),
-    settings: () => ({ mode: "interview", context: "", profile: "Node dev at Nubank", job: "Backend" }),
-    ...options,
+    settings: () => ({ mode: "interview", context: "", profile: "Node dev at Nubank", job: "Backend", responseLength: options.responseLength ?? "medium" }),
+    now: options.now,
+    timeoutMs: options.timeoutMs,
   });
   const types = () => events.map((e) => e.type);
   const of = (requestId: string) => events.filter((e) => "requestId" in e && e.requestId === requestId);
@@ -90,32 +91,41 @@ describe("SuggestionEngine", () => {
     expect(user).toContain("THEM: Recent line");
   });
 
-  it("gera sozinho quando o participante termina uma pergunta", async () => {
+  it("pergunta do participante não gera sugestão sozinha", async () => {
     const t = setup(answer("I build APIs.", "Eu construo APIs."));
     t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "Tell me about yourself.", interrupted: false });
     await settle();
-    expect(t.events[0]).toEqual({ type: "suggestion.started", requestId: "auto-1", trigger: "auto", basedOnUtteranceId: "them-2" });
-    expect(t.types()).toContain("suggestion.done");
-  });
-
-  it("não gera sozinho para afirmações, falas do usuário ou falas interrompidas", async () => {
-    const t = setup(answer("x", "y"));
-    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "That sounds great, thanks.", interrupted: false });
-    t.engine.addUtterance({ channel: "me", utteranceId: "me-1", text: "What do you mean by that?", interrupted: false });
-    t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "What would you do if", interrupted: true });
-    await settle();
     expect(t.events).toEqual([]);
+    expect(t.suggester.calls).toHaveLength(0);
   });
 
-  it("uma pergunta nova cancela a sugestão automática em andamento", async () => {
-    const t = setup(hanging);
-    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "How was your weekend?", interrupted: false });
+  it("pedido sem pergunta escolhida responde à última fala do participante que não é interjeição", async () => {
+    const t = setup(answer("x", "y"));
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "Why this company?", interrupted: false });
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "Uh-huh.", interrupted: false });
+    t.engine.request("r1");
     await settle();
-    t.suggester.stream = answer("Second.", "Segunda.");
-    t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "What is your biggest strength?", interrupted: false });
+    expect(t.of("r1")[0]).toEqual({ type: "suggestion.started", requestId: "r1", trigger: "manual", basedOnUtteranceId: "them-1" });
+  });
+
+  it("interjeições ficam fora da conversa enviada à IA", async () => {
+    const t = setup(answer("x", "y"));
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "Why this company?", interrupted: false });
+    t.engine.addUtterance({ channel: "me", utteranceId: "me-1", text: "Hmmm.", interrupted: false });
+    t.engine.addUtterance({ channel: "them", utteranceId: "them-2", text: "Yeah, sure.", interrupted: false });
+    t.engine.request("r1");
     await settle();
-    expect(t.of("auto-1").at(-1)).toEqual({ type: "suggestion.error", requestId: "auto-1", code: "cancelled" });
-    expect(t.of("auto-2").at(-1)).toEqual({ type: "suggestion.done", requestId: "auto-2", en: "Second.", pt: "Segunda." });
+    const user = t.suggester.calls[0]?.[1]?.content ?? "";
+    expect(user).toContain("THEM: Why this company?");
+    expect(user).not.toContain("Hmmm");
+    expect(user).not.toContain("Yeah, sure");
+  });
+
+  it("usa o tamanho de resposta das configurações", async () => {
+    const t = setup(answer("x", "y"), { responseLength: "short" });
+    t.engine.request("r1");
+    await settle();
+    expect(t.suggester.calls[0]?.[0]?.content).toContain("exactly 1 short sentence");
   });
 
   it("pedido manual recusado enquanto outro manual está em andamento", async () => {
@@ -126,14 +136,6 @@ describe("SuggestionEngine", () => {
     t.engine.request("r2");
     await settle();
     expect(t.of("r2")).toEqual([{ type: "suggestion.error", requestId: "r2", code: "busy" }]);
-  });
-
-  it("sugestão automática não atrapalha um pedido manual em andamento", async () => {
-    const t = setup(hanging);
-    t.engine.request("r1");
-    t.engine.addUtterance({ channel: "them", utteranceId: "them-1", text: "Why do you want this job?", interrupted: false });
-    await settle();
-    expect(t.events.filter((e) => e.type === "suggestion.started")).toHaveLength(1);
   });
 
   it("recusa pedidos manuais muito próximos e ignora requestId repetido", async () => {

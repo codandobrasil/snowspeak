@@ -64,10 +64,13 @@ export interface SessionState {
   suggestionNotice: string | null;
   /** Sessão com a chave do OpenRouter: sem ela, não há sugestões. */
   suggestionsEnabled: boolean;
+  /** Botão Sugestões ligado. */
+  suggestionsOn: boolean;
 }
 
 export type StoreAction =
-  | { type: "starting"; suggestionsEnabled: boolean }
+  | { type: "starting"; suggestionsEnabled: boolean; suggestionsOn: boolean }
+  | { type: "suggestions-on"; on: boolean }
   | { type: "mic"; status: MicStatus }
   | { type: "mic-muted"; muted: boolean }
   | { type: "level"; channel: Channel; rms: number }
@@ -104,6 +107,7 @@ export function initialState(): SessionState {
     suggestion: null,
     suggestionNotice: null,
     suggestionsEnabled: true,
+    suggestionsOn: true,
   };
 }
 
@@ -233,7 +237,9 @@ function applyEngineMessage(state: SessionState, message: EngineMessage): Sessio
 export function reduce(state: SessionState, action: StoreAction): SessionState {
   switch (action.type) {
     case "starting":
-      return { ...initialState(), status: "starting", suggestionsEnabled: action.suggestionsEnabled };
+      return { ...initialState(), status: "starting", suggestionsEnabled: action.suggestionsEnabled, suggestionsOn: action.suggestionsOn };
+    case "suggestions-on":
+      return { ...state, suggestionsOn: action.on };
     case "mic":
       return { ...state, mic: action.status };
     case "mic-muted":

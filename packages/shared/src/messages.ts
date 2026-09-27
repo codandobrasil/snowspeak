@@ -2,6 +2,8 @@ import type { Channel } from "./audio-frame";
 
 export const MODES = ["work", "sales", "interview", "relationship"] as const;
 export type Mode = (typeof MODES)[number];
+export const RESPONSE_LENGTHS = ["short", "medium", "long"] as const;
+export type ResponseLength = (typeof RESPONSE_LENGTHS)[number];
 export const MAX_CONTEXT_CHARS = 2_000;
 export const MAX_PROFILE_CHARS = 8_000;
 export const MAX_JOB_CHARS = 8_000;

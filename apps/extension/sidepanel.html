@@ -8,7 +8,10 @@
   <body>
     <header>
       <h1>SnowSpeak</h1>
-      <span id="status" class="status">Parado</span>
+      <span class="header-right">
+        <span id="status" class="status">Parado</span>
+        <button id="pop-out" class="link" title="Abrir o painel numa janela que pode ser arrastada para outro monitor">Abrir em janela</button>
+      </span>
     </header>
 
     <details id="settings" class="settings" open>
@@ -40,6 +43,12 @@
       <button id="skip-translator" hidden>Continuar só em inglês</button>
       <button id="portuguese-only" class="toggle" aria-pressed="false" title="Mostrar só a tradução das falas dos participantes">Só português</button>
       <button id="mute-mic" class="mute" aria-pressed="false" title="Parar de enviar o seu microfone (nada da sua voz sai do computador)">Microfone</button>
+      <select id="response-length" title="Tamanho da resposta sugerida">
+        <option value="short">Resposta curta</option>
+        <option value="medium">Resposta média</option>
+        <option value="long">Resposta longa</option>
+      </select>
+      <button id="suggestions-toggle" class="toggle" aria-pressed="true" title="Ligar ou desligar as sugestões de resposta">Sugestões ligadas</button>
       <button id="clear" title="Apagar a legenda e a sugestão (a fala em andamento continua)">Limpar</button>
       <span class="dots" aria-hidden="true">
         <span class="dot" data-dot="them" title="Participantes"></span>

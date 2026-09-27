@@ -1,4 +1,4 @@
-import type { Channel, Mode } from "@snowspeak/shared";
+import { isFillerOnly, type Channel, type Mode } from "@snowspeak/shared";
 import type { Caption, SessionStatus } from "../offscreen/session-store";
 import type { SuggestionQuestion } from "../offscreen/session-controller";
 import type { CaptionView } from "./caption-view";
@@ -54,4 +54,15 @@ export function captionLines(view: CaptionView, channel: Channel, portugueseOnly
   if (!portugueseOnly || channel === "me") return { showEnglish: true, englishIsPlaceholder: false, showPortuguese };
   const translated = view.portuguese !== "";
   return { showEnglish: !translated, englishIsPlaceholder: !translated, showPortuguese };
+}
+
+/** Falas que são só interjeição ("hmm", "uh-huh", "claro") não aparecem na legenda. */
+export function visibleCaptions(captions: readonly Caption[]): Caption[] {
+  return captions.filter((caption) => !isFillerOnly([...caption.segments, caption.partial].filter(Boolean).join(" ")));
+}
+
+/** Na janela avulsa, a aba a capturar vem no endereço (?tab=ID); no painel lateral, é a aba ativa. */
+export function captureTabFromUrl(search: string): number | undefined {
+  const tab = Number(new URLSearchParams(search).get("tab"));
+  return Number.isInteger(tab) && tab > 0 ? tab : undefined;
 }

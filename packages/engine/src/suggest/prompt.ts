@@ -1,4 +1,4 @@
-import type { Channel, Mode } from "@snowspeak/shared";
+import type { Channel, Mode, ResponseLength } from "@snowspeak/shared";
 
 export const TRANSCRIPT_LINES = 20;
 
@@ -12,6 +12,7 @@ export interface SuggestionContext {
   context: string;
   profile: string;
   job: string;
+  responseLength: ResponseLength;
   transcript: TranscriptLine[];
   /** Pergunta escolhida pelo usuário no painel. */
   question?: string;
@@ -30,11 +31,17 @@ const MODE_GUIDANCE: Record<Mode, string> = {
   relationship: "The user is in a personal, friendly conversation. Be warm, natural and genuine.",
 };
 
+const LENGTH_RULES: Record<ResponseLength, string> = {
+  short: "exactly 1 short sentence in simple, natural spoken English that is easy to read aloud.",
+  medium: "2 to 3 short sentences in simple, natural spoken English that is easy to read aloud.",
+  long: "4 to 6 sentences in simple, natural spoken English that is easy to read aloud, including one concrete example taken from the PROFILE when it has one.",
+};
+
 const SYSTEM_RULES = `You help a Brazilian user reply in real time during a live English conversation.
 Write the reply the user should say next, in the first person, answering the other person's last question or point.
 When a QUESTION TO ANSWER is given, answer exactly that question.
 Rules:
-- 2 to 3 short sentences in simple, natural spoken English that is easy to read aloud.
+- {LENGTH}
 - Facts about the user come only from the PROFILE. Use them as written: never add details the PROFILE does not state, such as team sizes, metrics, percentages, results, dates, tools, downtime or outcomes.
 - If the question asks for something the PROFILE does not cover (numbers, a technology, a story), do not make it up: answer honestly with what the PROFILE does say, or give a short general answer the user can fill in.
 - For behavioral questions ("tell me about a time...") that the PROFILE does not cover, never invent a specific story: describe how the user usually handles that kind of situation, in general terms.
@@ -53,7 +60,7 @@ export function buildSuggestionMessages(ctx: SuggestionContext): ChatMessage[] {
   if (ctx.question?.trim()) sections.push(`QUESTION TO ANSWER:\n${ctx.question.trim()}`);
   sections.push("Write the suggested reply now.");
   return [
-    { role: "system", content: `${SYSTEM_RULES}\n\n${MODE_GUIDANCE[ctx.mode]}` },
+    { role: "system", content: `${SYSTEM_RULES.replace("{LENGTH}", LENGTH_RULES[ctx.responseLength])}\n\n${MODE_GUIDANCE[ctx.mode]}` },
     { role: "user", content: sections.join("\n\n") },
   ];
 }

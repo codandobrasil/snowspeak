@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Caption } from "../offscreen/session-store";
-import { captionEmphasis, captionLines, columnTitles, isCaptureMode, selectableQuestion, timeline } from "./panel-view";
+import { captionEmphasis, captionLines, captureTabFromUrl, columnTitles, isCaptureMode, selectableQuestion, timeline, visibleCaptions } from "./panel-view";
 import type { CaptionView } from "./caption-view";
 
 const caption = (utteranceId: string, channel: "them" | "me" = "them"): Caption => ({
@@ -102,5 +102,37 @@ describe("captionLines", () => {
   it("as falas do usuário continuam em inglês/português original, sem tradução", () => {
     const lines = captionLines(view({ english: "Sure." }), "me", true);
     expect(lines).toEqual({ showEnglish: true, englishIsPlaceholder: false, showPortuguese: false });
+  });
+});
+
+describe("visibleCaptions", () => {
+  const said = (utteranceId: string, channel: "them" | "me", segments: string[], partial = ""): Caption => ({ ...caption(utteranceId, channel), segments, partial });
+
+  it("esconde falas que são só interjeição, nas duas colunas e enquanto ainda estão sendo faladas", () => {
+    const captions = [
+      said("them-1", "them", ["Why this company?"]),
+      said("me-1", "me", ["Hmmm."]),
+      said("them-2", "them", ["Uh-huh."]),
+      said("them-3", "them", [], "yeah"),
+      said("me-2", "me", ["Because of the product."]),
+    ];
+    expect(visibleCaptions(captions).map((c) => c.utteranceId)).toEqual(["them-1", "me-2"]);
+  });
+
+  it("mantém falas que só começam com interjeição e falas ainda sem texto", () => {
+    const captions = [said("them-1", "them", ["Yeah, so tell me about you."]), said("them-2", "them", [], "")];
+    expect(visibleCaptions(captions)).toEqual(captions);
+  });
+});
+
+describe("captureTabFromUrl", () => {
+  it("lê a aba a capturar do endereço da janela avulsa", () => {
+    expect(captureTabFromUrl("?tab=42")).toBe(42);
+  });
+
+  it("sem aba válida no endereço, o painel usa a aba ativa", () => {
+    expect(captureTabFromUrl("")).toBeUndefined();
+    expect(captureTabFromUrl("?tab=abc")).toBeUndefined();
+    expect(captureTabFromUrl("?tab=-3")).toBeUndefined();
   });
 });

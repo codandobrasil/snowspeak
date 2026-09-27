@@ -20,14 +20,14 @@ function run(...actions: StoreAction[]): SessionState {
 
 describe("reduce", () => {
   it("vai de starting para running com o sessionId", () => {
-    const state = run({ type: "starting", suggestionsEnabled: true }, { type: "engine", message: started });
+    const state = run({ type: "starting", suggestionsEnabled: true, suggestionsOn: true }, { type: "engine", message: started });
     expect(state.status).toBe("running");
     expect(state.sessionId).toBe("s1");
   });
 
   it("aplica o texto parcial e ignora eventos com seq repetido ou antigo", () => {
     const state = run(
-      { type: "starting", suggestionsEnabled: true },
+      { type: "starting", suggestionsEnabled: true, suggestionsOn: true },
       { type: "engine", message: started },
       { type: "engine", message: partial(1, "um") },
       { type: "engine", message: partial(2, "dois") },
@@ -73,14 +73,14 @@ describe("reduce", () => {
     expect(failed.errorMessage).toBe("Chave de acesso inválida.");
     expect(failed.channels.them.level).toBe(0);
 
-    const restarted = reduce(failed, { type: "starting", suggestionsEnabled: true });
+    const restarted = reduce(failed, { type: "starting", suggestionsEnabled: true, suggestionsOn: true });
     expect(restarted.errorMessage).toBeNull();
     expect(restarted.status).toBe("starting");
   });
 
   it("session.ended e stopped levam ao estado parado mantendo o último texto", () => {
     const ended = run(
-      { type: "starting", suggestionsEnabled: true },
+      { type: "starting", suggestionsEnabled: true, suggestionsOn: true },
       { type: "engine", message: started },
       { type: "engine", message: partial(1, "último") },
       { type: "engine", message: { v: 1, type: "session.ended", sessionId: "s1", reason: "stopped" } },
@@ -111,9 +111,10 @@ describe("reduce", () => {
     expect(state.notice).toBe("Tradução indisponível.");
   });
 
-  it("starting guarda se esta sessão tem sugestões", () => {
-    expect(initialState().suggestionsEnabled).toBe(true);
-    expect(run({ type: "starting", suggestionsEnabled: false }).suggestionsEnabled).toBe(false);
+  it("starting guarda se esta sessão tem sugestões e se elas estão ligadas", () => {
+    expect(initialState()).toMatchObject({ suggestionsEnabled: true, suggestionsOn: true });
+    expect(run({ type: "starting", suggestionsEnabled: false, suggestionsOn: false })).toMatchObject({ suggestionsEnabled: false, suggestionsOn: false });
+    expect(run({ type: "suggestions-on", on: false }).suggestionsOn).toBe(false);
   });
   it("um canal que desiste sai da reconexão e o aviso de reconexão não esconde o erro", () => {
     const lost = "A transcrição dos participantes parou: não foi possível reconectar ao Deepgram.";
@@ -150,7 +151,7 @@ describe("reduce", () => {
 describe("SessionStore", () => {
   it("snapshot devolve o estado atual para um painel reaberto", () => {
     const store = new SessionStore();
-    store.dispatch({ type: "starting", suggestionsEnabled: true });
+    store.dispatch({ type: "starting", suggestionsEnabled: true, suggestionsOn: true });
     store.dispatch({ type: "engine", message: started });
     store.dispatch({ type: "engine", message: partial(1, "olá") });
     expect(store.snapshot()).toMatchObject({ status: "running", captions: [{ partial: "olá" }] });
@@ -160,7 +161,7 @@ describe("SessionStore", () => {
     const store = new SessionStore();
     const seen: string[] = [];
     const unsubscribe = store.subscribe((state) => seen.push(state.status));
-    store.dispatch({ type: "starting", suggestionsEnabled: true });
+    store.dispatch({ type: "starting", suggestionsEnabled: true, suggestionsOn: true });
     unsubscribe();
     store.dispatch({ type: "stopped" });
     expect(seen).toEqual(["starting"]);
@@ -235,7 +236,7 @@ describe("falas", () => {
 
   it("evento de erro e aviso local viram aviso sem encerrar a sessão", () => {
     const state = run(
-      { type: "starting", suggestionsEnabled: true },
+      { type: "starting", suggestionsEnabled: true, suggestionsOn: true },
       { type: "engine", message: started },
       {
         type: "engine",
@@ -251,7 +252,7 @@ describe("falas", () => {
       { type: "engine", message: started },
       { type: "engine", message: event(1, { type: "transcript.partial", text: "old" }) },
       { type: "notice", message: "aviso" },
-      { type: "starting", suggestionsEnabled: true },
+      { type: "starting", suggestionsEnabled: true, suggestionsOn: true },
     );
     expect(state.captions).toEqual([]);
     expect(state.notice).toBeNull();
@@ -352,7 +353,7 @@ describe("sugestão", () => {
     const state = run(
       { type: "engine", message: started },
       { type: "engine", message: suggestionEvent(1, { type: "suggestion.started", requestId: "a", trigger: "manual", basedOnUtteranceId: null }) },
-      { type: "starting", suggestionsEnabled: true },
+      { type: "starting", suggestionsEnabled: true, suggestionsOn: true },
     );
     expect(state.suggestion).toBeNull();
   });

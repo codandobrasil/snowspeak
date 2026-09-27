@@ -32,6 +32,7 @@ body {
 header { display: flex; align-items: center; justify-content: space-between; }
 h1 { font-size: 18px; margin: 0; }
 .status { color: var(--muted); }
+.header-right { display: inline-flex; align-items: center; gap: 10px; }
 
 .settings { display: grid; gap: 8px; }
 .settings summary { cursor: pointer; color: var(--muted); }
@@ -72,9 +73,9 @@ p { margin: 0; }
 .caption-me { border-left: 3px solid var(--me); }
 .caption-them { border-left: 3px solid var(--accent); }
 .caption .speaker { font-size: 11px; color: var(--muted); }
-.caption .english { font-size: 15px; }
+.caption .english { font-size: 18px; }
 .caption .partial { color: var(--muted); }
-.caption .portuguese { color: var(--translation); font-size: 15px; margin-top: 2px; }
+.caption .portuguese { color: var(--translation); font-size: 18px; margin-top: 2px; }
 .caption .portuguese.pending { color: var(--muted); font-style: italic; font-size: 12px; }
 .caption .portuguese.failed { color: var(--warning); font-size: 12px; }
 .caption .interrupted { color: var(--muted); font-size: 11px; }
@@ -101,12 +102,12 @@ body.capturing .dots { display: inline-flex; }
 /* Fala atual em destaque; anteriores menores e esmaecidas. */
 .caption.previous { opacity: 0.55; }
 .caption.previous .english,
-.caption.previous .portuguese { font-size: 13px; }
+.caption.previous .portuguese { font-size: 16px; }
 .caption.current .english,
-.caption.current .portuguese { font-size: 18px; }
-.caption .english.placeholder { color: var(--muted); font-size: 13px; }
+.caption.current .portuguese { font-size: 22px; }
+.caption .english.placeholder { color: var(--muted); font-size: 16px; }
 .caption-me { background: transparent; border: 1px solid var(--border); border-left: 3px solid var(--me); }
-.caption-me .english { font-size: 14px; }
+.caption-me .english { font-size: 17px; }
 
 /* Duas colunas em linha do tempo: participantes à esquerda; o usuário e as sugestões à direita. */
 .columns-header { display: none; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -132,6 +133,6 @@ body.capturing .suggestion-area { display: flex; }
 .suggestion { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--accent); background: #13202e; }
 .suggestion-label { font-size: 11px; color: var(--muted); }
 .pending-dot { color: var(--accent); font-style: italic; }
-.suggestion-en { font-size: 17px; line-height: 1.35; margin-top: 4px; }
-.suggestion-pt { font-size: 14px; color: var(--translation); margin-top: 4px; }
+.suggestion-en { font-size: 21px; line-height: 1.35; margin-top: 4px; }
+.suggestion-pt { font-size: 17px; color: var(--translation); margin-top: 4px; }
 .suggest-button { align-self: stretch; }

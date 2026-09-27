@@ -6,6 +6,7 @@ const base: SuggestionContext = {
   context: "Entrevista na Acme",
   profile: "Backend developer, 8 years, Node and Kafka at Nubank.",
   job: "Senior Backend Engineer, payments.",
+  responseLength: "medium",
   transcript: [
     { channel: "them", text: "Tell me about yourself." },
     { channel: "me", text: "Sure." },
@@ -13,6 +14,15 @@ const base: SuggestionContext = {
 };
 
 describe("buildSuggestionMessages", () => {
+  it("o tamanho escolhido muda quantas frases a resposta tem", () => {
+    const system = (responseLength: SuggestionContext["responseLength"]) => buildSuggestionMessages({ ...base, responseLength })[0]?.content ?? "";
+    expect(system("short")).toContain("exactly 1 short sentence");
+    expect(system("short")).not.toContain("2 to 3");
+    expect(system("medium")).toContain("2 to 3 short sentences");
+    expect(system("long")).toContain("4 to 6 sentences");
+    expect(system("long")).toContain("concrete example");
+  });
+
   it("instrui formato, tamanho e modo no system", () => {
     const [system] = buildSuggestionMessages(base);
     expect(system?.role).toBe("system");

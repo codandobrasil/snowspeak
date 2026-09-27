@@ -49,6 +49,13 @@ A legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquan
 - [ ] Parar no meio de uma frase: "Finalizando…", as últimas palavras aparecem, depois "Parado".
 - [ ] Fechar e reabrir o painel mantém a legenda e o aviso de reconexão.
 - [ ] Nenhuma chave aparece no console do offscreen (`chrome://extensions` → Inspecionar visualizações → offscreen.html) nem em URLs na aba Rede.
+- [ ] A legenda e a sugestão estão maiores e fáceis de ler.
+- [ ] Interjeições do entrevistador ou suas ("hmm", "hummmm", "uh-huh", "yeah", "claro", "sim") não aparecem na legenda; uma frase que só começa com "yeah, so…" aparece.
+- [ ] Uma pergunta do entrevistador **não** gera sugestão sozinha; clicar no bloco dele gera a resposta para aquela pergunta.
+- [ ] O botão "Sugerir resposta" e o Alt+S respondem à última fala do entrevistador.
+- [ ] Resposta curta, média e longa mudam o tamanho da sugestão, inclusive no meio da sessão.
+- [ ] **Sugestões desligadas**: clicar nos blocos, o botão e o Alt+S não geram nada; ao religar, voltam. A escolha fica salva.
+- [ ] **Abrir em janela**: o painel abre numa janela que dá para arrastar para outro monitor; Iniciar nessa janela captura a aba em que você clicou no ícone.
 - [ ] Repetir numa chamada real do Google Meet.
 
 ## Publicação na Chrome Web Store

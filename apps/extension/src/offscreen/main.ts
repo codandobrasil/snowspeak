@@ -24,7 +24,7 @@ const controller = new SessionController({
           : null,
         onMessage,
       },
-      { mode: params.mode, context: params.context, profile: params.profile, job: params.job },
+      { mode: params.mode, context: params.context, profile: params.profile, job: params.job, responseLength: params.responseLength },
     ),
   onEngineMessage: (message) => translations.handle(message),
 });

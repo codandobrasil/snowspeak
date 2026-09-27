@@ -45,7 +45,7 @@ describe("OpenRouterSuggester", () => {
     const pieces = await collect(suggester.stream([{ role: "user", content: "x" }], new AbortController().signal));
     expect(pieces).toEqual(["<en>Hi", " there</en>"]);
     expect(lastRequest?.headers.authorization).toBe("Bearer or-key");
-    expect(lastRequest?.body).toMatchObject({ model: "anthropic/claude-haiku-4.5", stream: true, max_tokens: 400, messages: [{ role: "user", content: "x" }] });
+    expect(lastRequest?.body).toMatchObject({ model: "anthropic/claude-haiku-4.5", stream: true, max_tokens: 800, messages: [{ role: "user", content: "x" }] });
   });
 
   it("junta linhas SSE que chegam quebradas entre pacotes", async () => {

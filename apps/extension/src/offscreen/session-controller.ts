@@ -1,5 +1,5 @@
 import type { ChannelStats } from "@snowspeak/engine";
-import type { Channel, EngineMessage, Mode, SessionEndReason } from "@snowspeak/shared";
+import type { Channel, EngineMessage, Mode, ResponseLength, SessionEndReason } from "@snowspeak/shared";
 import type { SessionStore } from "./session-store";
 
 export const STATS_INTERVAL_MS = 500;
@@ -17,6 +17,9 @@ export interface StartParams {
   /** Vazia: sessão sem sugestões. */
   openRouterKey: string;
   suggestionModel: string;
+  responseLength: ResponseLength;
+  /** Botão Sugestões: desligado, nenhum pedido vai ao OpenRouter. */
+  suggestionsOn: boolean;
   mode: Mode;
   context: string;
   profile: string;
@@ -30,7 +33,7 @@ export interface SuggestionQuestion {
 }
 
 /** Campos que podem mudar durante a sessão (valem para as próximas sugestões). */
-export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job">>;
+export type SessionSettingsChanges = Partial<Pick<StartParams, "mode" | "context" | "profile" | "job" | "responseLength">>;
 
 export interface ChannelCapture {
   stop(): void;
@@ -80,6 +83,7 @@ interface Run {
   stopTimer: ReturnType<typeof setTimeout> | null;
   /** Microfone desligado pelo usuário: nada do canal "me" vai ao Deepgram. */
   micMuted: boolean;
+  suggestionsOn: boolean;
 }
 
 /** Rejeita após `ms`; uma captura que chegue depois do prazo é parada imediatamente. */
@@ -131,9 +135,10 @@ export class SessionController {
       stopping: false,
       stopTimer: null,
       micMuted: false,
+      suggestionsOn: params.suggestionsOn,
     };
     this.running = run;
-    this.deps.store.dispatch({ type: "starting", suggestionsEnabled: params.openRouterKey !== "" });
+    this.deps.store.dispatch({ type: "starting", suggestionsEnabled: params.openRouterKey !== "", suggestionsOn: params.suggestionsOn });
 
     const callbacks: CaptureCallbacks = {
       onFrame: (channel, pcm) => {
@@ -194,7 +199,7 @@ export class SessionController {
   /** Pede uma sugestão de resposta (para a pergunta escolhida, se houver); sem sessão rodando, não faz nada. */
   requestSuggestion(question?: SuggestionQuestion): void {
     const run = this.running;
-    if (!run?.live || run.stopping || !run.session) return;
+    if (!run?.live || run.stopping || !run.session || !run.suggestionsOn) return;
     const requestId = (this.deps.newRequestId ?? (() => crypto.randomUUID()))();
     run.session.requestSuggestion(requestId, question);
   }
@@ -207,7 +212,15 @@ export class SessionController {
     this.deps.store.dispatch({ type: "mic-muted", muted });
   }
 
-  /** Mudanças de modo, contexto, currículo ou vaga durante a sessão. */
+  /** Botão Sugestões: desligado, cliques, botão e Alt+S não pedem nada. */
+  setSuggestionsOn(on: boolean): void {
+    const run = this.running;
+    if (!run || run.stopping) return;
+    run.suggestionsOn = on;
+    this.deps.store.dispatch({ type: "suggestions-on", on });
+  }
+
+  /** Mudanças de modo, contexto, currículo, vaga ou tamanho da resposta durante a sessão. */
   update(changes: SessionSettingsChanges): void {
     const run = this.running;
     if (!run?.live || run.stopping || !run.session) return;

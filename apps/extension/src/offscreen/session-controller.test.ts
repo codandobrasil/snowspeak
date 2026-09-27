@@ -100,6 +100,8 @@ const params: StartParams = {
   deepgramKey: "dg-key",
   openRouterKey: "or-key",
   suggestionModel: "anthropic/claude-haiku-4.5",
+  responseLength: "medium",
+  suggestionsOn: true,
   mode: "work",
   context: "",
   profile: "Node dev",
@@ -378,6 +380,36 @@ describe("SessionController", () => {
     expect(t.session().updates).toEqual([]);
     t.session().open();
     await starting;
+  });
+
+  it("com as sugestões desligadas, pedidos não chegam à sessão; religando, voltam", async () => {
+    const t = setup();
+    const session = await startRunning(t);
+    t.controller.setSuggestionsOn(false);
+    expect(t.store.snapshot().suggestionsOn).toBe(false);
+    t.controller.requestSuggestion();
+    expect(session.requests).toEqual([]);
+    t.controller.setSuggestionsOn(true);
+    t.controller.requestSuggestion();
+    expect(session.requests).toHaveLength(1);
+  });
+
+  it("sessão iniciada com as sugestões desligadas não pede sugestão", async () => {
+    const t = setup();
+    const starting = t.controller.start({ ...params, suggestionsOn: false });
+    await settle();
+    t.session().open();
+    await starting;
+    expect(t.store.snapshot().suggestionsOn).toBe(false);
+    t.controller.requestSuggestion();
+    expect(t.session().requests).toEqual([]);
+  });
+
+  it("repassa o tamanho da resposta durante a sessão", async () => {
+    const t = setup();
+    const session = await startRunning(t);
+    t.controller.update({ responseLength: "long" });
+    expect(session.updates).toEqual([{ responseLength: "long" }]);
   });
 
   it("repassa mudanças de contexto durante a sessão", async () => {

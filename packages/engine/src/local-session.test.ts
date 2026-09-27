@@ -38,7 +38,7 @@ const hanging = (signal: AbortSignal): AsyncIterable<string> =>
     await new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason)));
   })();
 
-const SETTINGS = { mode: "interview" as const, context: "", profile: "Primeira versão", job: "" };
+const SETTINGS = { mode: "interview" as const, context: "", profile: "Primeira versão", job: "", responseLength: "medium" as const };
 const pcm = (): Uint8Array => new Uint8Array(3200);
 
 function create(suggester: Suggester | null = recordingSuggester().suggester) {
@@ -167,12 +167,13 @@ describe("LocalSession", () => {
     t.session.close("stopped");
   });
 
-  it("pergunta do participante gera sugestão automática", async () => {
+  it("pergunta do participante não gera sugestão sozinha; o pedido responde a ela", async () => {
     const t = await started();
     t.hub.channel("them").emit(finalSegment("Tell me about yourself."));
+    expect(t.types().filter((type) => type.startsWith("suggestion."))).toEqual([]);
+    t.session.requestSuggestion("r1");
     await vi.waitFor(() => expect(t.of("suggestion.done")).toHaveLength(1));
-    expect(t.of("suggestion.done")[0]).toMatchObject({ en: "OK.", pt: "Certo." });
-    expect(t.of("suggestion.started")[0]).toMatchObject({ trigger: "auto", basedOnUtteranceId: "them-1" });
+    expect(t.of("suggestion.started")[0]).toMatchObject({ trigger: "manual", basedOnUtteranceId: "them-1" });
   });
 
   it("requestSuggestion com a pergunta escolhida responde a ela", async () => {

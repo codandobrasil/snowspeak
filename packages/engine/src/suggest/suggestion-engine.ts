@@ -1,7 +1,6 @@
-import type { Channel, Mode, EngineEventBody, SuggestionErrorCode, SuggestionTrigger } from "@snowspeak/shared";
+import { isFillerOnly, type Channel, type EngineEventBody, type Mode, type ResponseLength, type SuggestionErrorCode, type SuggestionTrigger } from "@snowspeak/shared";
 import { SuggesterAuthError, type Suggester } from "./openrouter";
 import { buildSuggestionMessages, type TranscriptLine } from "./prompt";
-import { looksLikeQuestion } from "./question-detector";
 import { TagStreamParser } from "./tag-stream";
 
 export const SUGGESTION_TIMEOUT_MS = 15_000;
@@ -13,6 +12,7 @@ export interface SuggestionSettings {
   context: string;
   profile: string;
   job: string;
+  responseLength: ResponseLength;
 }
 
 export interface SuggestionEngineDeps {
@@ -38,22 +38,18 @@ export class SuggestionEngine {
   private readonly seen = new Set<string>();
   private inflight: Generation | null = null;
   private lastManualAt = Number.NEGATIVE_INFINITY;
-  private autoCount = 0;
   private closed = false;
   // Durante o Parar a conversa ainda é registrada, mas nenhuma sugestão nova começa.
   private accepting = true;
 
   constructor(private readonly deps: SuggestionEngineDeps) {}
 
+  /** Registra a fala na conversa; a sugestão só sai quando o usuário pede (clique, botão ou Alt+S). */
   addUtterance(utterance: { channel: Channel; utteranceId: string; text: string; interrupted: boolean }): void {
-    if (this.closed || !utterance.text.trim()) return;
+    // Interjeições ("hmm", "uh-huh", "claro") não são falas a responder nem contexto útil.
+    if (this.closed || !utterance.text.trim() || isFillerOnly(utterance.text)) return;
     this.transcript.push({ channel: utterance.channel, text: utterance.text.trim(), utteranceId: utterance.utteranceId });
     if (this.transcript.length > MAX_TRANSCRIPT) this.transcript.shift();
-    if (!this.accepting || utterance.channel !== "them" || utterance.interrupted || !looksLikeQuestion(utterance.text)) return;
-    // Pedido do usuário em andamento tem prioridade sobre a sugestão automática.
-    if (this.inflight?.trigger === "manual") return;
-    this.autoCount += 1;
-    this.start(`auto-${this.autoCount}`, "auto", utterance.utteranceId);
   }
 
   /** Pedido do usuário; com `question`, responde à pergunta escolhida no painel em vez da última. */

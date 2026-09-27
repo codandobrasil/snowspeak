@@ -9,6 +9,8 @@ const params: StartParams = {
   deepgramKey: "dg",
   openRouterKey: "",
   suggestionModel: "anthropic/claude-haiku-4.5",
+  responseLength: "medium",
+  suggestionsOn: true,
   mode: "work",
   context: "",
   profile: "",
@@ -21,7 +23,8 @@ function fakeController() {
   const requestSuggestion = vi.fn((_question?: object) => undefined);
   const update = vi.fn((_changes: object) => undefined);
   const setMicMuted = vi.fn((_muted: boolean) => undefined);
-  return { start, stop, requestSuggestion, update, setMicMuted } satisfies OffscreenController;
+  const setSuggestionsOn = vi.fn((_on: boolean) => undefined);
+  return { start, stop, requestSuggestion, update, setMicMuted, setSuggestionsOn } satisfies OffscreenController;
 }
 
 describe("handleOffscreenMessage", () => {
@@ -40,7 +43,7 @@ describe("handleOffscreenMessage", () => {
 
   it("devolve o snapshot do store em get-state", () => {
     const store = new SessionStore();
-    store.dispatch({ type: "starting", suggestionsEnabled: true });
+    store.dispatch({ type: "starting", suggestionsEnabled: true, suggestionsOn: true });
     expect(handleOffscreenMessage({ target: "offscreen", type: "get-state" }, fakeController(), store)).toBe(store.snapshot());
   });
 
@@ -58,6 +61,12 @@ describe("handleOffscreenMessage", () => {
     const controller = fakeController();
     expect(handleOffscreenMessage({ target: "offscreen", type: "mute-mic", muted: true }, controller, new SessionStore())).toEqual({ ok: true });
     expect(controller.setMicMuted).toHaveBeenCalledWith(true);
+  });
+
+  it("liga e desliga as sugestões", () => {
+    const controller = fakeController();
+    expect(handleOffscreenMessage({ target: "offscreen", type: "suggestions-on", on: false }, controller, new SessionStore())).toEqual({ ok: true });
+    expect(controller.setSuggestionsOn).toHaveBeenCalledWith(false);
   });
 
   it("ignora mensagens destinadas a outros contextos", () => {

@@ -27,7 +27,7 @@ export function createOpenRouterSuggester(options: { apiKey: string; model: stri
       const response = await fetch(url, {
         method: "POST",
         headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json", "X-Title": "SnowSpeak" },
-        body: JSON.stringify({ model: options.model, messages, stream: true, max_tokens: 400, temperature: 0.4 }),
+        body: JSON.stringify({ model: options.model, messages, stream: true, max_tokens: 800, temperature: 0.4 }),
         signal,
       });
       if (response.status === 401 || response.status === 403) throw new SuggesterAuthError(response.status);
