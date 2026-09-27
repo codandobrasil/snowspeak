@@ -1,15 +1,17 @@
 # SnowSpeak
 
-Legendas EN→PT-BR em tempo real e sugestões de resposta para chamadas no navegador.
+Legendas EN→PT-BR em tempo real e sugestões de resposta para chamadas no navegador. A extensão funciona sozinha, com as chaves do próprio usuário: a transcrição usa o Deepgram, as sugestões usam o OpenRouter e a tradução roda no próprio Chrome.
 
-- Spec: `docs/superpowers/specs/2026-09-25-snowspeak-realtime-engine-design.md`
-- Planos: `docs/superpowers/plans/` (marco 1, marcos 3 e 4, marco 5)
+- Spec atual: `docs/superpowers/specs/2026-09-27-byok-so-extensao-design.md`
+- Specs e planos anteriores: `docs/superpowers/` (a versão com servidor está no histórico do git até o commit `0706794`)
 
 ## Requisitos
 
 - Node 20+
 - pnpm 9 (`corepack prepare pnpm@9.15.9 --activate`)
-- Google Chrome 116+
+- Google Chrome 116+ (a tradução precisa do Chrome 138+ para desktop)
+- Uma chave do Deepgram (console.deepgram.com → API Keys; a conta nova vem com crédito)
+- Opcional: uma chave do OpenRouter para as sugestões (openrouter.ai → Keys)
 
 ## Desenvolvimento
 
@@ -20,32 +22,39 @@ pnpm --filter @snowspeak/extension build
 ```
 
 1. Abra `chrome://extensions`, ative o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha `apps/extension/dist`.
-2. Copie o ID da extensão exibido no card.
-3. `cp apps/server/.env.example apps/server/.env` e preencha `ALLOWED_ORIGINS=chrome-extension://<ID>` e uma chave em `ACCESS_KEYS`.
-   Para transcrição real, preencha também `DEEPGRAM_API_KEY` (console.deepgram.com → API Keys; a conta nova vem com crédito). Sem ela, o servidor usa o STT falso e avisa no log. A tradução não precisa de chave: roda no próprio Chrome (Translator API, Chrome 138+ para desktop).
-   Para sugestões de resposta reais, preencha `OPENROUTER_API_KEY` (openrouter.ai → Keys); o modelo fica em `SUGGESTION_MODEL` (padrão `anthropic/claude-haiku-4.5`). Sem a chave, o servidor usa sugestões falsas e avisa no log.
-4. `pnpm --filter @snowspeak/server dev`
-5. Na aba que você quer capturar, clique no ícone do SnowSpeak. O painel abre associado **a essa aba**. Informe a chave e clique em **Iniciar**.
+2. Na aba que você quer capturar, clique no ícone do SnowSpeak. O painel abre associado **a essa aba**.
+3. Em **Configurações**, cole a chave do Deepgram (e, se quiser sugestões, a do OpenRouter) e clique em **Testar chaves**.
+4. Clique em **Iniciar**.
 
-Depois de mudar o código da extensão: `pnpm --filter @snowspeak/extension build` e clique em recarregar no card da extensão.
+Depois de mudar o código: `pnpm --filter @snowspeak/extension build` e clique em recarregar no card da extensão.
 
 ### O que o painel mostra
 
-**Com `DEEPGRAM_API_KEY`:** a legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquanto é provisório), o português aparece em verde abaixo de cada frase dos participantes, e as suas falas aparecem em roxo, sem tradução. Na primeira sessão, o Chrome pode baixar o modelo de tradução (há um botão para seguir só em inglês enquanto isso).
+A legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquanto é provisório), o português aparece em verde abaixo de cada frase dos participantes, e as suas falas aparecem em roxo, sem tradução. Na primeira sessão, o Chrome pode baixar o modelo de tradução (há um botão para seguir só em inglês enquanto isso). Com a chave do OpenRouter, a sugestão de resposta aparece logo abaixo da pergunta.
 
-**Sem a chave:** o STT falso do marco 1, que mede o áudio recebido e mostra por canal:
+## BYOK — roteiro de validação
 
-```
-[fake-stt them] 12.0 s · -9 dBFS · ~440 Hz
-```
+- [ ] Em `chrome://extensions` → Detalhes do SnowSpeak → Acesso ao site, aparecem só `api.deepgram.com` e `openrouter.ai`.
+- [ ] Iniciar sem a chave do Deepgram: "Informe a chave do Deepgram em Configurações." e nada é capturado.
+- [ ] **Testar chaves** com as duas chaves certas: "Deepgram: ok · OpenRouter: ok".
+- [ ] **Testar chaves** com uma chave errada em cada campo: "chave recusada" no provedor certo.
+- [ ] **Testar chaves** sem a chave do OpenRouter: "OpenRouter: não configurada (sem sugestões)".
+- [ ] Iniciar com a chave do Deepgram errada: "Não foi possível conectar ao Deepgram. Confira a chave em Configurações." e a captura é liberada.
+- [ ] Sessão com as duas chaves num vídeo de entrevista em inglês: legenda, tradução e sugestão automática como nos marcos 3 a 5.
+- [ ] Sessão sem a chave do OpenRouter: legenda e tradução funcionam; o cartão mostra "Sugestões desligadas: informe a chave do OpenRouter." e o botão de sugerir fica desabilitado.
+- [ ] Chave do OpenRouter errada numa sessão: o cartão mostra "O OpenRouter recusou a chave. Confira em Configurações."
+- [ ] Desligar o Wi-Fi por ~10 s no meio da sessão: aparece "Reconectando ao Deepgram…", a fala em andamento fica como interrompida, e ao religar o aviso some e a legenda volta.
+- [ ] Desligar o Wi-Fi por mais de 60 s: aparece "A transcrição dos participantes parou: não foi possível reconectar ao Deepgram." e a sessão continua até o Parar.
+- [ ] Parar no meio de uma frase: "Finalizando…", as últimas palavras aparecem, depois "Parado".
+- [ ] Fechar e reabrir o painel mantém a legenda e o aviso de reconexão.
+- [ ] Nenhuma chave aparece no console do offscreen (`chrome://extensions` → Inspecionar visualizações → offscreen.html) nem em URLs na aba Rede.
+- [ ] Repetir numa chamada real do Google Meet.
 
-- **duração**: segundos de áudio aceitos pelo servidor;
-- **nível** em dBFS e **frequência dominante**: confirmam que o PCM chegou correto;
-- `silêncio` quando o nível fica abaixo de -60 dBFS.
+## Roteiros anteriores (versão com servidor)
 
-A página `http://localhost:8787/tone` toca um seno de 440 Hz com amplitude 0,5 (≈ -9 dBFS), útil para conferir o caminho do áudio sem provedores.
+Os roteiros abaixo foram validados na versão com servidor e ficam como histórico.
 
-## Marco 1 — roteiro de validação
+### Marco 1 — roteiro de validação
 
 Marque cada item ao validar no Chrome:
 
@@ -73,7 +82,7 @@ Marque cada item ao validar no Chrome:
 
 Se aparecer "Extension has not been invoked for the current page" ao iniciar, anote: é o caso previsto na contingência R7 do plano (o clique no ícone passa a iniciar a sessão diretamente).
 
-## Marcos 3 e 4 — roteiro de validação (com a chave do Deepgram)
+### Marcos 3 e 4 — roteiro de validação (com a chave do Deepgram)
 
 - [x] O log do servidor mostra `STT: Deepgram · tradução: no Chrome do usuário`.
 - [x] Na primeira vez, Iniciar mostra "Baixando o tradutor do Chrome… X%" (só se o modelo ainda não estiver instalado), com o botão "Continuar só em inglês".
@@ -89,7 +98,7 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] Ao parar, o log do servidor mostra a latência estimada do STT (`latência estimada do STT (segmento final) p50 …`).
 - [ ] Repetir numa chamada real do Google Meet.
 
-## Marco 5 — roteiro de validação (com a chave do OpenRouter)
+### Marco 5 — roteiro de validação (com a chave do OpenRouter)
 
 - [x] O log do servidor mostra `sugestões: OpenRouter (anthropic/claude-haiku-4.5)`.
 - [x] Nas configurações, preencher o currículo e a vaga e escolher o modo Entrevista (os campos ficam salvos).
@@ -108,7 +117,7 @@ Se aparecer "Extension has not been invoked for the current page" ao iniciar, an
 - [x] **Microfone** desliga o envio da sua voz: o botão fica vermelho ("Microfone desligado"), a coluna Você para de receber falas e a legenda do entrevistador segue normal. Clicar de novo religa.
 - [ ] Repetir numa chamada real do Google Meet.
 
-## Marco 2 — roteiro de validação (reconexão)
+### Marco 2 — roteiro de validação (reconexão)
 
 Ponha `DEV_ENDPOINTS=1` no `apps/server/.env` e reinicie o servidor.
 
