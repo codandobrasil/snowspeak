@@ -7,6 +7,8 @@ export type SttResult =
   | { kind: "utteranceEnd"; lastWordEnd: number };
 
 export interface SttCallbacks {
+  /** A conexão com o provedor abriu (antes disso, write() só enfileira). */
+  onOpen?(): void;
   onResult(result: SttResult): void;
   /** A conexão com o provedor caiu ou foi recusada (nunca chamado depois de close()). */
   onError(error: Error): void;
