@@ -3,3 +3,4 @@ export type { SuggestionSettings } from "./suggest/suggestion-engine";
 export type { SttFactory } from "./stt/types";
 export { createDeepgramSttFactory } from "./stt/deepgram-browser";
 export type { ChannelStats } from "./channel-pipeline";
+export { LocalSession, type LocalSessionDeps } from "./local-session";

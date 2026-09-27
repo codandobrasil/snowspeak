@@ -274,3 +274,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   const result = serverMessageSchema.safeParse(parseJson(raw));
   return result.success ? result.data : null;
 }
+
+/** Mensagens de controle do motor local (sem resumeToken). */
+export type EngineControl =
+  | { v: 1; type: "session.started"; sessionId: string }
+  | { v: 1; type: "session.ended"; sessionId: string; reason: SessionEndReason };
+
+export type EngineMessage = EngineControl | ServerEvent;
