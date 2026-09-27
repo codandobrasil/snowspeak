@@ -102,12 +102,12 @@ body.capturing .dots { display: inline-flex; }
 /* Fala atual em destaque; anteriores menores e esmaecidas. */
 .caption.previous { opacity: 0.55; }
 .caption.previous .english,
-.caption.previous .portuguese { font-size: 16px; }
+.caption.previous .portuguese { font-size: 18px; }
 .caption.current .english,
 .caption.current .portuguese { font-size: 22px; }
-.caption .english.placeholder { color: var(--muted); font-size: 16px; }
+.caption .english.placeholder { color: var(--muted); font-size: 18px; }
 .caption-me { background: transparent; border: 1px solid var(--border); border-left: 3px solid var(--me); }
-.caption-me .english { font-size: 17px; }
+.caption-me .english { font-size: 18px; }
 
 /* Duas colunas em linha do tempo: participantes à esquerda; o usuário e as sugestões à direita. */
 .columns-header { display: none; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
