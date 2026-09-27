@@ -6,6 +6,7 @@ import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";
 import { prepareChromeTranslator } from "../translation/chrome-translator";
 import { captionView } from "./caption-view";
 import { captionEmphasis, captionLines, columnTitles, isCaptureMode, selectableQuestion, timeline, type CaptionEmphasis } from "./panel-view";
+import { checkDeepgramKey, checkOpenRouterKey, describeKeyCheck } from "./key-check";
 import { suggestionCard } from "./suggestion-view";
 import { waitForTranslator } from "./translator-wait";
 
@@ -68,6 +69,8 @@ const clearButton = byId<HTMLButtonElement>("clear");
 const muteMicButton = byId<HTMLButtonElement>("mute-mic");
 const widthHint = byId<HTMLParagraphElement>("width-hint");
 const dismissWidthHintButton = byId<HTMLButtonElement>("dismiss-width-hint");
+const checkKeysButton = byId<HTMLButtonElement>("check-keys");
+const keyCheckResult = byId<HTMLSpanElement>("key-check-result");
 
 contextInput.maxLength = MAX_CONTEXT_CHARS;
 profileInput.maxLength = MAX_PROFILE_CHARS;
@@ -100,7 +103,7 @@ function fillCaptionItem(item: HTMLLIElement, caption: Caption, emphasis: Captio
   item.classList.toggle("previous", emphasis === "previous");
   item.classList.toggle("answered", answered);
   // Pergunta terminada: clicar (ou Enter) pede a resposta para ela.
-  const selectable = selectableQuestion(caption) !== null;
+  const selectable = selectableQuestion(caption) !== null && lastState.suggestionsEnabled;
   item.classList.toggle("selectable", selectable);
   if (selectable) {
     item.tabIndex = 0;
@@ -195,7 +198,7 @@ function render(): void {
 
 /** Preenche o cartão da sugestão; devolve se ele está visível. */
 function renderSuggestion(state: SessionState): boolean {
-  const card = suggestionCard(state.suggestion, state.suggestionNotice);
+  const card = suggestionCard(state.suggestion, state.suggestionNotice, state.suggestionsEnabled);
   suggestionItem.hidden = !card.visible;
   suggestionLabel.textContent = card.label;
   suggestionPending.hidden = !card.pending;
@@ -206,7 +209,7 @@ function renderSuggestion(state: SessionState): boolean {
   suggestionNotice.hidden = !card.notice;
   suggestionNotice.textContent = card.notice ?? "";
   suggestionLabel.hidden = !card.label;
-  suggestButton.disabled = state.status !== "running";
+  suggestButton.disabled = state.status !== "running" || !state.suggestionsEnabled;
   return card.visible;
 }
 
@@ -361,7 +364,7 @@ clearButton.addEventListener("click", () => {
 });
 
 function requestSuggestionFor(target: EventTarget | null): void {
-  if (lastState.status !== "running" || !(target instanceof Element)) return;
+  if (lastState.status !== "running" || !lastState.suggestionsEnabled || !(target instanceof Element)) return;
   const id = target.closest<HTMLElement>("li.caption.selectable")?.dataset.utteranceId;
   const caption = lastState.captions.find((c) => c.utteranceId === id);
   const question = caption ? selectableQuestion(caption) : null;
@@ -406,6 +409,15 @@ dismissWidthHintButton.addEventListener("click", () => {
 
 skipTranslatorButton.addEventListener("click", () => {
   skipTranslatorWait?.();
+});
+
+checkKeysButton.addEventListener("click", async () => {
+  const { deepgramKey, openRouterKey } = readForm();
+  checkKeysButton.disabled = true;
+  keyCheckResult.textContent = "Testando…";
+  const [deepgram, openRouter] = await Promise.all([checkDeepgramKey(deepgramKey), checkOpenRouterKey(openRouterKey)]);
+  keyCheckResult.textContent = `${describeKeyCheck("Deepgram", deepgram)} · ${describeKeyCheck("OpenRouter", openRouter)}`;
+  checkKeysButton.disabled = false;
 });
 
 grantMicButton.addEventListener("click", () => {

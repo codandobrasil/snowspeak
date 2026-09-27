@@ -22,7 +22,10 @@ const ERROR_MESSAGES: Record<SuggestionErrorCode, string> = {
   rate_limited: "Espere um instante para pedir outra sugestão.",
 };
 
-export function suggestionCard(suggestion: SuggestionState | null, notice: string | null): SuggestionCard {
+export const SUGGESTIONS_DISABLED_NOTICE = "Sugestões desligadas: informe a chave do OpenRouter.";
+
+export function suggestionCard(suggestion: SuggestionState | null, notice: string | null, suggestionsEnabled = true): SuggestionCard {
+  if (!suggestionsEnabled) return { visible: true, label: "", en: "", pt: "", pending: false, error: null, notice: SUGGESTIONS_DISABLED_NOTICE };
   if (!suggestion) return { visible: notice !== null, label: "", en: "", pt: "", pending: false, error: null, notice };
   const failed = suggestion.status === "error";
   return {

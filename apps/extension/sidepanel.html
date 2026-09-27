@@ -14,8 +14,11 @@
     <details id="settings" class="settings" open>
       <summary>Configurações</summary>
       <label>Chave do Deepgram <input id="deepgramKey" type="password" autocomplete="off" spellcheck="false" /></label>
+      <p class="hint">Obrigatória. Gere em <a href="https://console.deepgram.com/" target="_blank" rel="noopener">console.deepgram.com</a> → API Keys.</p>
       <label>Chave do OpenRouter (opcional) <input id="openRouterKey" type="password" autocomplete="off" spellcheck="false" /></label>
+      <p class="hint">Sem ela, a legenda funciona, mas não há sugestões de resposta. Gere em <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
       <label>Modelo das sugestões <input id="suggestionModel" type="text" autocomplete="off" spellcheck="false" /></label>
+      <p class="key-check"><button id="check-keys" type="button">Testar chaves</button> <span id="key-check-result" class="hint" aria-live="polite"></span></p>
       <label>
         Modo
         <select id="mode">
@@ -28,7 +31,7 @@
       <label>Contexto <textarea id="context" rows="3"></textarea></label>
       <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
       <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
-      <p class="hint">Currículo e vaga ficam salvos só neste navegador; vão ao servidor e ao provedor de IA apenas para gerar sugestões.</p>
+      <p class="hint">Suas chaves, currículo e vaga ficam só neste navegador. O áudio vai direto ao Deepgram; a conversa, o currículo e a vaga vão direto ao OpenRouter apenas para gerar sugestões.</p>
     </details>
 
     <div class="actions">
