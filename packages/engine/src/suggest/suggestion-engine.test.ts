@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ServerEventBody } from "@snowspeak/shared";
+import type { EngineEventBody } from "@snowspeak/shared";
 import type { ChatMessage } from "./prompt";
 import { SuggesterAuthError, type Suggester } from "./openrouter";
 import { MANUAL_MIN_INTERVAL_MS, SuggestionEngine } from "./suggestion-engine";
@@ -26,7 +26,7 @@ const hanging: Script = async function* (_m, signal) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 function setup(script: Script, options: { now?: () => number; timeoutMs?: number } = {}) {
-  const events: ServerEventBody[] = [];
+  const events: EngineEventBody[] = [];
   const suggester = scripted(script);
   const engine = new SuggestionEngine({
     suggester,

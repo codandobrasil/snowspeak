@@ -5,7 +5,7 @@ import type { CaptionView } from "./caption-view";
 
 /** Durante a captura o painel esconde configurações e medidores para sobrar espaço à legenda. */
 export function isCaptureMode(status: SessionStatus, pendingStart: boolean): boolean {
-  return pendingStart || status === "starting" || status === "running" || status === "reconnecting" || status === "stopping";
+  return pendingStart || status === "starting" || status === "running" || status === "stopping";
 }
 
 export type CaptionEmphasis = "current" | "previous" | "normal";

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ServerEventBody } from "@snowspeak/shared";
+import type { EngineEventBody } from "@snowspeak/shared";
 import { ChannelPipeline, STT_RECONNECT_DELAYS_MS } from "./channel-pipeline";
 import { LatencyStats } from "./latency";
 import { createScriptedSttHub } from "./test-support/scripted-stt";
@@ -8,7 +8,7 @@ const frame = (frameSeq: number) => ({ channel: "them" as const, frameSeq, sampl
 
 function setup(options: { retryBeforeFirstOpen?: boolean } = {}) {
   const hub = createScriptedSttHub();
-  const events: ServerEventBody[] = [];
+  const events: EngineEventBody[] = [];
   const pipeline = new ChannelPipeline({
     channel: "them",
     sttFactory: hub.factory,

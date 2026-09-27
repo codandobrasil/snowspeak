@@ -1,7 +1,7 @@
-import { isServerEvent, type Channel, type ServerMessage, type SuggestionErrorCode, type SuggestionTrigger } from "@snowspeak/shared";
-import type { ChannelStats } from "./frame-sender";
+import type { ChannelStats } from "@snowspeak/engine";
+import { isEngineEvent, type Channel, type EngineMessage, type SuggestionErrorCode, type SuggestionTrigger } from "@snowspeak/shared";
 
-export type SessionStatus = "idle" | "starting" | "running" | "reconnecting" | "stopping" | "error";
+export type SessionStatus = "idle" | "starting" | "running" | "stopping" | "error";
 export type MicStatus = "unknown" | "active" | "denied";
 
 export const MAX_CAPTIONS = 200;
@@ -49,7 +49,6 @@ export interface SessionState {
   errorMessage: string | null;
   notice: string | null;
   sessionId: string | null;
-  resumeToken: string | null;
   mic: MicStatus;
   /** O usuário desligou o microfone pelo painel: o áudio dele não sai do computador. */
   micMuted: boolean;
@@ -61,15 +60,17 @@ export interface SessionState {
   suggestion: SuggestionState | null;
   /** Aviso curto de pedido de sugestão recusado; some quando a sugestão atual avança. */
   suggestionNotice: string | null;
+  /** Sessão com a chave do OpenRouter: sem ela, não há sugestões. */
+  suggestionsEnabled: boolean;
 }
 
 export type StoreAction =
-  | { type: "starting" }
+  | { type: "starting"; suggestionsEnabled: boolean }
   | { type: "mic"; status: MicStatus }
   | { type: "mic-muted"; muted: boolean }
   | { type: "level"; channel: Channel; rms: number }
   | { type: "stats"; stats: Record<Channel, ChannelStats> }
-  | { type: "server"; message: ServerMessage }
+  | { type: "engine"; message: EngineMessage }
   | { type: "sentence-translated"; sessionId: string; utteranceId: string; sentenceIdx: number; text: string }
   | { type: "sentence-translation-failed"; sessionId: string; utteranceId: string; sentenceIdx: number }
   | { type: "notice"; message: string }
@@ -77,8 +78,6 @@ export type StoreAction =
   | { type: "clear-notice"; message: string }
   /** Botão Limpar: some com o que já terminou; a fala e a sugestão em andamento continuam. */
   | { type: "clear" }
-  /** Conexão caiu; a captura continua enquanto o controlador tenta retomar. */
-  | { type: "reconnecting" }
   | { type: "stopping" }
   | { type: "failed"; message: string }
   | { type: "stopped" };
@@ -93,7 +92,6 @@ export function initialState(): SessionState {
     errorMessage: null,
     notice: null,
     sessionId: null,
-    resumeToken: null,
     mic: "unknown",
     micMuted: false,
     lastSeq: 0,
@@ -102,6 +100,7 @@ export function initialState(): SessionState {
     captions: [],
     suggestion: null,
     suggestionNotice: null,
+    suggestionsEnabled: true,
   };
 }
 
@@ -148,19 +147,10 @@ function updateSentence(
   return withCaption(state, caption.channel, utteranceId, (c) => ({ ...c, sentences: { ...c.sentences, [sentenceIdx]: { ...sentence, ...patch } } }));
 }
 
-function applyServerMessage(state: SessionState, message: ServerMessage): SessionState {
-  if (!isServerEvent(message)) {
-    switch (message.type) {
-      case "session.started":
-        return { ...state, status: "running", sessionId: message.sessionId, resumeToken: message.resumeToken, lastSeq: 0 };
-      case "session.ended":
-        return { ...state, status: "idle", channels: silenced(state) };
-      case "session.resumed":
-        return { ...state, status: "running" };
-      case "session.superseded":
-      case "heartbeat":
-        return state;
-    }
+function applyEngineMessage(state: SessionState, message: EngineMessage): SessionState {
+  if (!isEngineEvent(message)) {
+    if (message.type === "session.started") return { ...state, status: "running", sessionId: message.sessionId, lastSeq: 0 };
+    return { ...state, status: "idle", channels: silenced(state) };
   }
   if (message.seq <= state.lastSeq) return state;
   const next = { ...state, lastSeq: message.seq };
@@ -224,7 +214,7 @@ function applyServerMessage(state: SessionState, message: ServerMessage): Sessio
 export function reduce(state: SessionState, action: StoreAction): SessionState {
   switch (action.type) {
     case "starting":
-      return { ...initialState(), status: "starting" };
+      return { ...initialState(), status: "starting", suggestionsEnabled: action.suggestionsEnabled };
     case "mic":
       return { ...state, mic: action.status };
     case "mic-muted":
@@ -239,8 +229,8 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
           me: { ...state.channels.me, ...action.stats.me },
         },
       };
-    case "server":
-      return applyServerMessage(state, action.message);
+    case "engine":
+      return applyEngineMessage(state, action.message);
     case "sentence-translated":
       return updateSentence(state, action.sessionId, action.utteranceId, action.sentenceIdx, { translation: action.text, failed: false });
     case "sentence-translation-failed":
@@ -256,8 +246,6 @@ export function reduce(state: SessionState, action: StoreAction): SessionState {
         suggestion: state.suggestion?.status === "streaming" ? state.suggestion : null,
         suggestionNotice: null,
       };
-    case "reconnecting":
-      return { ...state, status: "reconnecting", channels: silenced(state) };
     case "stopping":
       return { ...state, status: "stopping", channels: silenced(state) };
     case "failed":

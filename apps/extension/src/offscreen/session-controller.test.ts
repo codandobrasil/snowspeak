@@ -1,58 +1,83 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { decodeFrame, type Channel, type ClientMessage, type ServerMessage } from "@snowspeak/shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ChannelStats } from "@snowspeak/engine";
+import type { Channel, EngineMessage, SessionEndReason } from "@snowspeak/shared";
 import {
+  DEEPGRAM_UNAVAILABLE_MESSAGE,
   MIC_CAPTURE_TIMEOUT_MS,
-  SESSION_START_TIMEOUT_MS,
-  STOP_TIMEOUT_MS,
   STATS_INTERVAL_MS,
-  RECONNECT_DELAYS_MS,
-  RESUME_WINDOW_MS,
-  SERVER_SILENCE_TIMEOUT_MS,
-  SESSION_EXPIRED_MESSAGE,
-  SESSION_REPLACED_MESSAGE,
-  SESSION_SUPERSEDED_MESSAGE,
+  STOP_TIMEOUT_MS,
+  TAB_CAPTURE_ENDED_MESSAGE,
   SessionController,
   type CaptureCallbacks,
   type ChannelCapture,
   type ControllerDeps,
-  type ControllerSocket,
-  type SocketHandlers,
+  type EngineSession,
+  type SessionSettingsChanges,
   type StartParams,
+  type SuggestionQuestion,
 } from "./session-controller";
 import { SessionStore } from "./session-store";
 
-class FakeSocket implements ControllerSocket {
-  bufferedAmount = 0;
-  isOpen = false;
-  closed = false;
-  readonly binary: ArrayBuffer[] = [];
-  readonly json: ClientMessage[] = [];
+class FakeSession implements EngineSession {
+  readonly pcm: Array<[Channel, number]> = [];
+  readonly updates: SessionSettingsChanges[] = [];
+  readonly requests: Array<[string, SuggestionQuestion | undefined]> = [];
+  stopping = false;
+  closedWith: SessionEndReason | null = null;
+  private opened = false;
+  private settleStart: { resolve(): void; reject(error: Error): void } | null = null;
+  private finishDrain: (() => void) | null = null;
 
   constructor(
-    readonly url: string,
-    private readonly handlers: SocketHandlers,
+    readonly params: StartParams,
+    private readonly onMessage: (message: EngineMessage) => void,
   ) {}
 
-  send(data: ArrayBuffer): void {
-    this.binary.push(data);
+  start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.settleStart = { resolve, reject };
+    });
   }
-  sendJson(message: ClientMessage): void {
-    if (this.isOpen) this.json.push(message);
-  }
-  close(): void {
-    this.closed = true;
-    this.isOpen = false;
-  }
+  /** O Deepgram dos participantes abriu. */
   open(): void {
-    this.isOpen = true;
-    this.handlers.onOpen();
+    this.opened = true;
+    this.onMessage({ v: 1, type: "session.started", sessionId: "s1" });
+    this.settleStart?.resolve();
   }
-  receive(message: ServerMessage): void {
-    this.handlers.onMessage(message);
+  /** O Deepgram recusou a primeira conexão (ou a sessão fechou antes de abrir). */
+  refuse(): void {
+    this.settleStart?.reject(new Error("Deepgram encerrou a conexão (código 1006)"));
   }
-  serverClose(code: number, reason = ""): void {
-    this.isOpen = false;
-    this.handlers.onClose(code, reason);
+  emit(message: EngineMessage): void {
+    this.onMessage(message);
+  }
+  acceptPcm(channel: Channel, pcm: Uint8Array): void {
+    this.pcm.push([channel, pcm.byteLength]);
+  }
+  stats(): Record<Channel, ChannelStats> {
+    return { them: { sentFrames: 3, droppedFrames: 1 }, me: { sentFrames: 2, droppedFrames: 0 } };
+  }
+  update(changes: SessionSettingsChanges): void {
+    this.updates.push(changes);
+  }
+  requestSuggestion(requestId: string, question?: SuggestionQuestion): void {
+    this.requests.push([requestId, question]);
+  }
+  beginStop(): void {
+    this.stopping = true;
+  }
+  drain(): Promise<void> {
+    return new Promise((resolve) => {
+      this.finishDrain = resolve;
+    });
+  }
+  drained(): void {
+    this.finishDrain?.();
+  }
+  close(reason: SessionEndReason): void {
+    if (this.closedWith) return;
+    this.closedWith = reason;
+    if (this.opened) this.onMessage({ v: 1, type: "session.ended", sessionId: "s1", reason });
   }
 }
 
@@ -72,27 +97,33 @@ function fakeCapture(): FakeCapture {
 
 const params: StartParams = {
   streamId: "stream-1",
-  serverUrl: "ws://server/ws",
-  token: "key-1",
+  deepgramKey: "dg-key",
+  openRouterKey: "or-key",
+  suggestionModel: "anthropic/claude-haiku-4.5",
   mode: "work",
   context: "",
   profile: "Node dev",
   job: "Backend",
 };
-const started: ServerMessage = { v: 1, type: "session.started", sessionId: "s1", resumeToken: "r1" };
+
+// Deixa as capturas (promessas já resolvidas) andarem até a criação da sessão; funciona com timers falsos.
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+};
 
 interface SetupOverrides {
   tab?: () => Promise<ChannelCapture>;
   mic?: () => Promise<ChannelCapture>;
-  openSocketError?: Error;
 }
 
 function setup(overrides: SetupOverrides = {}) {
   const store = new SessionStore();
-  const sockets: FakeSocket[] = [];
+  const sessions: FakeSession[] = [];
   const tab = fakeCapture();
   const mic = fakeCapture();
   let callbacks: CaptureCallbacks | null = null;
+  let requestIds = 0;
+  const onEngineMessage = vi.fn((_message: EngineMessage): void => undefined);
 
   const deps: ControllerDeps = {
     store,
@@ -101,23 +132,32 @@ function setup(overrides: SetupOverrides = {}) {
       return overrides.tab ? overrides.tab() : Promise.resolve(tab);
     }),
     captureMic: vi.fn(() => (overrides.mic ? overrides.mic() : Promise.resolve(mic))),
-    openSocket: (url, handlers) => {
-      if (overrides.openSocketError) throw overrides.openSocketError;
-      const socket = new FakeSocket(url, handlers);
-      sockets.push(socket);
-      return socket;
+    createSession: (sessionParams, onMessage) => {
+      const session = new FakeSession(sessionParams, onMessage);
+      sessions.push(session);
+      return session;
     },
+    onEngineMessage,
+    newRequestId: () => `req-${++requestIds}`,
   };
 
   return {
     controller: new SessionController(deps),
-    deps,
     store,
-    sockets,
+    sessions,
     tab,
     mic,
+    onEngineMessage,
+    session(): FakeSession {
+      const session = sessions.at(-1);
+      if (!session) throw new Error("nenhuma sessão criada");
+      return session;
+    },
     emitFrame(channel: Channel) {
       callbacks?.onFrame(channel, new ArrayBuffer(3200));
+    },
+    emitLevel(channel: Channel, rms: number) {
+      callbacks?.onLevel(channel, rms);
     },
     emitEnded(channel: Channel) {
       callbacks?.onEnded(channel);
@@ -125,303 +165,253 @@ function setup(overrides: SetupOverrides = {}) {
   };
 }
 
-async function startRunning(t: ReturnType<typeof setup>): Promise<FakeSocket> {
-  await t.controller.start(params);
-  const socket = t.sockets[0]!;
-  socket.open();
-  socket.receive(started);
-  return socket;
+async function startRunning(t: ReturnType<typeof setup>): Promise<FakeSession> {
+  const starting = t.controller.start(params);
+  await settle();
+  t.session().open();
+  await starting;
+  return t.session();
 }
 
-describe("SessionController", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-  it("abre o socket e envia session.start depois de capturar aba e microfone", async () => {
+describe("SessionController", () => {
+  it("cria a sessão com as chaves depois de capturar aba e microfone e fica rodando quando o Deepgram abre", async () => {
     const t = setup();
-    await t.controller.start(params);
-    expect(t.deps.captureTab).toHaveBeenCalledWith("stream-1", expect.anything());
-    expect(t.sockets).toHaveLength(1);
-    t.sockets[0]!.open();
-    expect(t.sockets[0]!.json).toEqual([{ type: "session.start", token: "key-1", mode: "work", context: "", profile: "Node dev", job: "Backend" }]);
-    t.sockets[0]!.receive(started);
-    expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "active" });
+    const session = await startRunning(t);
+    expect(session.params).toEqual(params);
+    expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "active", sessionId: "s1", suggestionsEnabled: true });
   });
 
-  it("só envia frames depois de session.started", async () => {
+  it("sem chave do OpenRouter, a sessão começa com as sugestões desligadas", async () => {
     const t = setup();
-    await t.controller.start(params);
-    const socket = t.sockets[0]!;
-    socket.open();
-    t.emitFrame("them");
-    expect(socket.binary).toHaveLength(0);
+    const starting = t.controller.start({ ...params, openRouterKey: "" });
+    expect(t.store.snapshot().suggestionsEnabled).toBe(false);
+    await settle();
+    t.session().open();
+    await starting;
+  });
 
-    socket.receive(started);
+  it("só entrega áudio depois que o Deepgram abriu", async () => {
+    const t = setup();
+    const starting = t.controller.start(params);
+    await settle();
     t.emitFrame("them");
-    expect(socket.binary).toHaveLength(1);
-    const decoded = decodeFrame(new Uint8Array(socket.binary[0]!));
-    expect(decoded.ok && [decoded.frame.channel, decoded.frame.frameSeq, decoded.frame.sampleOffset]).toEqual(["them", 0, 0]);
+    expect(t.session().pcm).toEqual([]);
+    t.session().open();
+    await starting;
+    t.emitFrame("them");
+    t.emitFrame("me");
+    expect(t.session().pcm).toEqual([
+      ["them", 3200],
+      ["me", 3200],
+    ]);
+  });
+
+  it("falha com a mensagem do Deepgram e libera as capturas quando a primeira conexão é recusada", async () => {
+    const t = setup();
+    const starting = t.controller.start(params);
+    await settle();
+    t.session().refuse();
+    await starting;
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: DEEPGRAM_UNAVAILABLE_MESSAGE });
+    expect(t.tab.stopped).toBe(true);
+    expect(t.mic.stopped).toBe(true);
+    expect(t.session().closedWith).toBe("error");
   });
 
   it("segue só com a aba quando o microfone é negado", async () => {
-    const t = setup({ mic: () => Promise.reject(new DOMException("denied", "NotAllowedError")) });
+    const t = setup({ mic: () => Promise.reject(new Error("denied")) });
     await startRunning(t);
     expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "denied" });
   });
 
   it("segue sem microfone quando o pedido do microfone não responde", async () => {
-    let resolveMic!: (capture: ChannelCapture) => void;
-    const t = setup({ mic: () => new Promise((resolve) => (resolveMic = resolve)) });
-    const pending = t.controller.start(params);
+    vi.useFakeTimers();
+    const t = setup({ mic: () => new Promise<ChannelCapture>(() => undefined) });
+    const starting = t.controller.start(params);
     await vi.advanceTimersByTimeAsync(MIC_CAPTURE_TIMEOUT_MS);
-    await pending;
-    expect(t.sockets).toHaveLength(1);
-    expect(t.store.snapshot().mic).toBe("denied");
-
-    const late = fakeCapture();
-    resolveMic(late);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(late.stopped).toBe(true);
+    t.session().open();
+    await starting;
+    expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "denied" });
   });
 
-  it("falha sem abrir socket quando a captura da aba falha", async () => {
-    const t = setup({ tab: () => Promise.reject(new Error("Permission dismissed")) });
+  it("falha sem criar sessão quando a captura da aba falha", async () => {
+    const t = setup({ tab: () => Promise.reject(new Error("sem permissão")) });
     await t.controller.start(params);
-    expect(t.sockets).toHaveLength(0);
-    expect(t.deps.captureMic).not.toHaveBeenCalled();
-    expect(t.store.snapshot().status).toBe("error");
-    expect(t.store.snapshot().errorMessage).toBe("Não foi possível capturar o áudio da aba: Permission dismissed");
-  });
-
-  it("libera as capturas quando o socket não pode ser criado", async () => {
-    const t = setup({ openSocketError: new SyntaxError("invalid url") });
-    await t.controller.start(params);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: "Endereço do servidor inválido." });
-    expect(t.tab.stopped && t.mic.stopped).toBe(true);
-    await t.controller.start(params); // um novo início volta a ser possível
-    expect(t.deps.captureTab).toHaveBeenCalledTimes(2);
-  });
-
-  it("desiste e libera tudo quando session.started não chega no prazo", async () => {
-    const t = setup();
-    await t.controller.start(params);
-    t.sockets[0]!.open();
-    vi.advanceTimersByTime(SESSION_START_TIMEOUT_MS);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: "O servidor não respondeu a tempo." });
-    expect(t.sockets[0]!.closed).toBe(true);
-    expect(t.tab.stopped && t.mic.stopped).toBe(true);
-  });
-
-  it("não aplica o prazo depois que a sessão começou", async () => {
-    const t = setup();
-    await startRunning(t);
-    vi.advanceTimersByTime(SESSION_START_TIMEOUT_MS * 2);
-    expect(t.store.snapshot().status).toBe("running");
+    expect(t.sessions).toEqual([]);
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: "Não foi possível capturar o áudio da aba: sem permissão" });
   });
 
   it("ignora um segundo start enquanto o primeiro está em andamento", async () => {
     const t = setup();
     const first = t.controller.start(params);
     await t.controller.start(params);
+    await settle();
+    expect(t.sessions).toHaveLength(1);
+    t.session().open();
     await first;
-    expect(t.deps.captureTab).toHaveBeenCalledTimes(1);
-    expect(t.sockets).toHaveLength(1);
   });
 
-  it("mostra erro de conexão e libera capturas quando o servidor não aceita a conexão", async () => {
+  it("stop espera as últimas falas do Deepgram e depois encerra", async () => {
     const t = setup();
-    await t.controller.start(params);
-    t.sockets[0]!.serverClose(1006);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: "Não foi possível conectar ao servidor." });
+    const session = await startRunning(t);
+    t.controller.stop();
     expect(t.tab.stopped).toBe(true);
-    expect(t.mic.stopped).toBe(true);
-  });
-
-  it("mostra chave inválida no fechamento 4401", async () => {
-    const t = setup();
-    await t.controller.start(params);
-    t.sockets[0]!.open();
-    t.sockets[0]!.serverClose(4401, "invalid token");
-    expect(t.store.snapshot().errorMessage).toBe("Chave de acesso inválida.");
-    expect(t.tab.stopped).toBe(true);
-  });
-
-  it("vai para parado quando o servidor encerra a sessão com 4410", async () => {
-    const t = setup();
-    const socket = await startRunning(t);
-    socket.receive({ v: 1, type: "session.ended", sessionId: "s1", reason: "stopped" });
-    socket.serverClose(4410);
-    expect(t.store.snapshot()).toMatchObject({ status: "idle", errorMessage: null });
-    expect(t.tab.stopped).toBe(true);
-  });
-
-  it("stop para a captura, envia session.stop e continua recebendo até o servidor encerrar", async () => {
-    const t = setup();
-    const seen: string[] = [];
-    const controller = new SessionController({ ...t.deps, onServerMessage: (m) => seen.push(m.type) });
-    await controller.start(params);
-    const socket = t.sockets[0]!;
-    socket.open();
-    socket.receive(started);
-    controller.stop();
-    expect(socket.json.at(-1)).toEqual({ type: "session.stop" });
-    expect(socket.closed).toBe(false);
-    expect(t.tab.stopped && t.mic.stopped).toBe(true);
+    expect(session.stopping).toBe(true);
     expect(t.store.snapshot().status).toBe("stopping");
-
-    socket.receive({ v: 1, sessionId: "s1", seq: 1, ts: 0, type: "sentence.ready", channel: "them", utteranceId: "them-1", sentenceIdx: 0, text: "Last words." });
-    expect(seen).toEqual(["session.started", "sentence.ready"]);
-
-    socket.receive({ v: 1, type: "session.ended", sessionId: "s1", reason: "stopped" });
-    socket.serverClose(4410);
-    expect(t.store.snapshot()).toMatchObject({ status: "idle", errorMessage: null });
-    expect(socket.closed).toBe(true);
-  });
-
-  it("stop desiste de esperar o servidor depois do prazo de segurança", async () => {
-    const t = setup();
-    const socket = await startRunning(t);
-    t.controller.stop();
-    vi.advanceTimersByTime(STOP_TIMEOUT_MS);
-    expect(t.store.snapshot().status).toBe("idle");
-    expect(socket.closed).toBe(true);
-    socket.serverClose(1006);
-    expect(t.store.snapshot()).toMatchObject({ status: "idle", errorMessage: null });
-  });
-
-  it("stop antes de a sessão começar libera tudo na hora", async () => {
-    const t = setup();
-    await t.controller.start(params);
-    const socket = t.sockets[0]!;
-    socket.open();
-    t.controller.stop();
-    expect(socket.closed).toBe(true);
-    expect(t.tab.stopped && t.mic.stopped).toBe(true);
+    expect(session.closedWith).toBeNull();
+    session.drained();
+    await settle();
+    expect(session.closedWith).toBe("stopped");
     expect(t.store.snapshot().status).toBe("idle");
   });
 
-  it("ignora o fim da captura da aba enquanto finaliza", async () => {
+  it("stop desiste de esperar depois do prazo de segurança", async () => {
+    vi.useFakeTimers();
     const t = setup();
-    await startRunning(t);
+    const session = await startRunning(t);
     t.controller.stop();
-    t.emitEnded("them");
-    expect(t.store.snapshot()).toMatchObject({ status: "stopping", errorMessage: null });
+    await vi.advanceTimersByTimeAsync(STOP_TIMEOUT_MS);
+    expect(session.closedWith).toBe("stopped");
+    expect(t.store.snapshot().status).toBe("idle");
   });
 
-  it("repassa as mensagens do servidor ao gancho, depois de aplicá-las ao store", async () => {
+  it("stop antes de o Deepgram abrir libera tudo na hora", async () => {
     const t = setup();
-    const seen: Array<{ type: string; status: string }> = [];
-    const controller = new SessionController({ ...t.deps, onServerMessage: (m) => seen.push({ type: m.type, status: t.store.snapshot().status }) });
-    await controller.start(params);
-    t.sockets[0]!.open();
-    t.sockets[0]!.receive(started);
-    expect(seen).toEqual([{ type: "session.started", status: "running" }]);
+    const starting = t.controller.start(params);
+    await settle();
+    t.controller.stop();
+    expect(t.store.snapshot().status).toBe("idle");
+    expect(t.tab.stopped).toBe(true);
+    expect(t.session().closedWith).toBe("stopped");
+    // A sessão real rejeita o start pendente ao fechar; isso não pode virar erro na tela.
+    t.session().refuse();
+    await starting;
+    expect(t.store.snapshot()).toMatchObject({ status: "idle", errorMessage: null });
   });
 
   it("stop durante a captura da aba descarta a captura atrasada", async () => {
-    let resolveTab!: (capture: ChannelCapture) => void;
-    const t = setup({ tab: () => new Promise((resolve) => (resolveTab = resolve)) });
-    const pending = t.controller.start(params);
+    let resolveTab: (capture: ChannelCapture) => void = () => undefined;
+    const t = setup({
+      tab: () =>
+        new Promise<ChannelCapture>((resolve) => {
+          resolveTab = resolve;
+        }),
+    });
+    const starting = t.controller.start(params);
     t.controller.stop();
-    const late = fakeCapture();
-    resolveTab(late);
-    await pending;
-    expect(late.stopped).toBe(true);
-    expect(t.sockets).toHaveLength(0);
+    resolveTab(t.tab);
+    await starting;
+    expect(t.tab.stopped).toBe(true);
+    expect(t.sessions).toEqual([]);
     expect(t.store.snapshot().status).toBe("idle");
   });
 
   it("encerra a sessão quando a captura da aba termina", async () => {
     const t = setup();
-    const socket = await startRunning(t);
+    const session = await startRunning(t);
     t.emitEnded("them");
-    expect(socket.json.at(-1)).toEqual({ type: "session.stop" });
-    expect(socket.closed).toBe(true);
-    expect(t.tab.stopped && t.mic.stopped).toBe(true);
-    expect(t.store.snapshot()).toMatchObject({
-      status: "error",
-      errorMessage: "A captura da aba terminou (aba fechada ou compartilhamento encerrado).",
-    });
+    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: TAB_CAPTURE_ENDED_MESSAGE });
+    expect(session.closedWith).toBe("error");
+    expect(t.mic.stopped).toBe(true);
+  });
+
+  it("ignora o fim da captura da aba enquanto finaliza", async () => {
+    const t = setup();
+    const session = await startRunning(t);
+    t.controller.stop();
+    t.emitEnded("them");
+    expect(t.store.snapshot().status).toBe("stopping");
+    session.drained();
+    await settle();
+    expect(t.store.snapshot().status).toBe("idle");
   });
 
   it("segue só com a aba quando o microfone deixa de funcionar", async () => {
     const t = setup();
-    const socket = await startRunning(t);
+    await startRunning(t);
     t.emitEnded("me");
     expect(t.mic.stopped).toBe(true);
-    expect(t.tab.stopped).toBe(false);
-    expect(socket.closed).toBe(false);
     expect(t.store.snapshot()).toMatchObject({ status: "running", mic: "denied" });
   });
 
+  it("aplica as mensagens do motor ao store e depois as repassa ao gancho", async () => {
+    const t = setup();
+    const session = await startRunning(t);
+    const partial: EngineMessage = { v: 1, type: "transcript.partial", sessionId: "s1", seq: 1, ts: 0, channel: "them", utteranceId: "them-1", text: "hi" };
+    t.onEngineMessage.mockImplementation((): void => {
+      expect(t.store.snapshot().captions[0]?.partial).toBe("hi");
+    });
+    session.emit(partial);
+    expect(t.onEngineMessage).toHaveBeenLastCalledWith(partial);
+  });
+
   it("publica estatísticas de frames periodicamente", async () => {
+    vi.useFakeTimers();
     const t = setup();
     await startRunning(t);
-    t.emitFrame("them");
-    t.emitFrame("me");
     vi.advanceTimersByTime(STATS_INTERVAL_MS);
-    expect(t.store.snapshot().channels.them.sentFrames).toBe(1);
-    expect(t.store.snapshot().channels.me.sentFrames).toBe(1);
-  });
-  it("pede sugestão ao servidor com um requestId novo", async () => {
-    const t = setup();
-    const controller = new SessionController({ ...t.deps, newRequestId: () => "req-1" });
-    await controller.start(params);
-    t.sockets[0]!.open();
-    t.sockets[0]!.receive(started);
-    controller.requestSuggestion();
-    expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-1" });
+    expect(t.store.snapshot().channels.them).toMatchObject({ sentFrames: 3, droppedFrames: 1 });
   });
 
-  it("pede sugestão para a pergunta escolhida", async () => {
+  it("pede sugestão com um requestId novo, com ou sem pergunta escolhida", async () => {
     const t = setup();
-    const controller = new SessionController({ ...t.deps, newRequestId: () => "req-2" });
-    await controller.start(params);
-    t.sockets[0]!.open();
-    t.sockets[0]!.receive(started);
-    controller.requestSuggestion({ utteranceId: "them-3", text: "Why us?" });
-    expect(t.sockets[0]!.json.at(-1)).toEqual({ type: "suggest.request", requestId: "req-2", question: { utteranceId: "them-3", text: "Why us?" } });
-  });
-
-  it("não pede sugestão sem sessão iniciada", async () => {
-    const t = setup();
-    await t.controller.start(params);
-    t.sockets[0]!.open();
+    const session = await startRunning(t);
     t.controller.requestSuggestion();
-    expect(t.sockets[0]!.json.map((m) => m.type)).toEqual(["session.start"]);
+    t.controller.requestSuggestion({ utteranceId: "them-3", text: "Why us?" });
+    expect(session.requests).toEqual([
+      ["req-1", undefined],
+      ["req-2", { utteranceId: "them-3", text: "Why us?" }],
+    ]);
   });
 
-  it("envia mudanças de contexto durante a sessão", async () => {
+  it("não pede sugestão nem repassa mudanças antes de o Deepgram abrir", async () => {
     const t = setup();
-    const socket = await startRunning(t);
-    t.controller.update({ job: "Staff Engineer" });
-    expect(socket.json.at(-1)).toEqual({ type: "session.update", job: "Staff Engineer" });
+    const starting = t.controller.start(params);
+    await settle();
+    t.controller.requestSuggestion();
+    t.controller.update({ mode: "interview" });
+    expect(t.session().requests).toEqual([]);
+    expect(t.session().updates).toEqual([]);
+    t.session().open();
+    await starting;
+  });
+
+  it("repassa mudanças de contexto durante a sessão", async () => {
+    const t = setup();
+    const session = await startRunning(t);
+    t.controller.update({ profile: "Kafka" });
+    expect(session.updates).toEqual([{ profile: "Kafka" }]);
   });
 });
 
 describe("microfone desligado", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  it("não envia o áudio do microfone enquanto desligado e volta a enviar ao religar", async () => {
+  it("não entrega o áudio do microfone enquanto desligado e volta a entregar ao religar", async () => {
     const t = setup();
-    const socket = await startRunning(t);
+    const session = await startRunning(t);
     t.controller.setMicMuted(true);
-    expect(t.store.snapshot().micMuted).toBe(true);
     t.emitFrame("me");
     t.emitFrame("them");
-    expect(socket.binary.map((frame) => decodeFrame(new Uint8Array(frame)))).toMatchObject([{ ok: true, frame: { channel: "them" } }]);
+    expect(session.pcm).toEqual([["them", 3200]]);
+    expect(t.store.snapshot().micMuted).toBe(true);
     t.controller.setMicMuted(false);
     t.emitFrame("me");
-    expect(socket.binary).toHaveLength(2);
-    expect(t.store.snapshot().micMuted).toBe(false);
+    expect(session.pcm).toEqual([
+      ["them", 3200],
+      ["me", 3200],
+    ]);
   });
 
   it("zera o nível do microfone e ignora o nível enquanto desligado", async () => {
     const t = setup();
     await startRunning(t);
-    t.store.dispatch({ type: "level", channel: "me", rms: 0.4 });
+    t.emitLevel("me", 0.5);
     t.controller.setMicMuted(true);
+    expect(t.store.snapshot().channels.me.level).toBe(0);
+    t.emitLevel("me", 0.7);
     expect(t.store.snapshot().channels.me.level).toBe(0);
   });
 
@@ -429,167 +419,14 @@ describe("microfone desligado", () => {
     const t = setup();
     t.controller.setMicMuted(true);
     expect(t.store.snapshot().micMuted).toBe(false);
-    const socket = await startRunning(t);
+    const first = await startRunning(t);
     t.controller.setMicMuted(true);
-    socket.serverClose(4410);
-    await t.controller.start(params);
-    t.sockets[1]!.open();
-    t.sockets[1]!.receive(started);
+    t.controller.stop();
+    first.drained();
+    await settle();
+    const second = await startRunning(t);
+    t.emitFrame("me");
+    expect(second.pcm).toEqual([["me", 3200]]);
     expect(t.store.snapshot().micMuted).toBe(false);
   });
 });
-
-describe("reconexão", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
-
-  const resumed: ServerMessage = { v: 1, type: "session.resumed", sessionId: "s1", throughSeq: 0 };
-  const segment = (seq: number): ServerMessage => ({
-    v: 1,
-    type: "transcript.segment",
-    sessionId: "s1",
-    seq,
-    ts: 0,
-    channel: "them",
-    utteranceId: "them-1",
-    segmentIdx: 0,
-    text: "Hello.",
-  });
-
-  it("queda sem código de aplicação: captura continua e retoma com o lastSeq do store", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.receive(segment(7));
-    first.serverClose(1006);
-    expect(t.store.snapshot().status).toBe("reconnecting");
-    expect(t.tab.stopped).toBe(false);
-    expect(t.mic.stopped).toBe(false);
-    t.emitFrame("them"); // descartado: sem conexão
-    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
-    const second = t.sockets[1]!;
-    second.open();
-    expect(second.json).toEqual([{ type: "session.resume", token: "key-1", sessionId: "s1", resumeToken: "r1", lastSeq: 7 }]);
-    second.receive({ ...resumed, throughSeq: 7 });
-    expect(t.store.snapshot()).toMatchObject({ status: "running", lastSeq: 7 });
-    t.emitFrame("them");
-    expect(second.binary).toHaveLength(1);
-    expect(first.binary).toHaveLength(0);
-  });
-
-  it("tenta de novo com espera crescente e desiste 60 s depois da queda", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.serverClose(1006);
-    const opened: number[] = [];
-    let elapsed = 0;
-    while (t.store.snapshot().status === "reconnecting" && elapsed <= RESUME_WINDOW_MS + 10_000) {
-      vi.advanceTimersByTime(100);
-      elapsed += 100;
-      const last = t.sockets.at(-1)!;
-      if (t.sockets.length - 1 > opened.length) {
-        opened.push(elapsed);
-        last.serverClose(1006); // tentativa falha sem abrir
-      }
-    }
-    expect(opened.slice(0, 7)).toEqual([500, 1_500, 3_500, 7_500, 15_500, 25_500, 35_500]);
-    expect(opened.at(-1)).toBeLessThanOrEqual(RESUME_WINDOW_MS);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: SESSION_EXPIRED_MESSAGE });
-    expect(t.tab.stopped).toBe(true);
-  });
-
-  it("15 s sem mensagens do servidor derruba a conexão e reconecta", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    vi.advanceTimersByTime(SERVER_SILENCE_TIMEOUT_MS - 1_000);
-    first.receive({ v: 1, type: "heartbeat", sessionId: "s1" });
-    vi.advanceTimersByTime(SERVER_SILENCE_TIMEOUT_MS - 1_000);
-    expect(t.store.snapshot().status).toBe("running");
-    vi.advanceTimersByTime(1_000);
-    expect(first.closed).toBe(true);
-    expect(t.store.snapshot().status).toBe("reconnecting");
-    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
-    expect(t.sockets).toHaveLength(2);
-  });
-
-  it("tentativa que não responde em 5 s conta como falha e agenda a próxima", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.serverClose(1006);
-    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
-    t.sockets[1]!.open(); // abre, mas o servidor nunca responde
-    vi.advanceTimersByTime(5_000);
-    expect(t.sockets[1]!.closed).toBe(true);
-    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[1]!);
-    expect(t.sockets).toHaveLength(3);
-  });
-
-  it("Parar durante a reconexão cancela as tentativas e libera a captura", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.serverClose(1006);
-    t.controller.stop();
-    expect(t.store.snapshot()).toMatchObject({ status: "idle" });
-    expect(t.tab.stopped).toBe(true);
-    vi.advanceTimersByTime(RESUME_WINDOW_MS);
-    expect(t.sockets).toHaveLength(1);
-  });
-
-  it("não envia sugestão nem mudanças antes do session.resumed", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.serverClose(1006);
-    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
-    const second = t.sockets[1]!;
-    second.open();
-    t.controller.requestSuggestion();
-    t.controller.update({ job: "x" });
-    expect(second.json.map((m) => m.type)).toEqual(["session.resume"]);
-  });
-
-  it.each([
-    [4404, SESSION_EXPIRED_MESSAGE],
-    [4400, SESSION_EXPIRED_MESSAGE],
-    [4409, SESSION_SUPERSEDED_MESSAGE],
-    [4401, "Chave de acesso inválida."],
-  ])("retomada recusada com %i: para e mostra a mensagem", async (code, message) => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.serverClose(1006);
-    vi.advanceTimersByTime(RECONNECT_DELAYS_MS[0]!);
-    t.sockets[1]!.open();
-    t.sockets[1]!.serverClose(code);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: message });
-    expect(t.tab.stopped).toBe(true);
-    vi.advanceTimersByTime(RESUME_WINDOW_MS);
-    expect(t.sockets).toHaveLength(2);
-  });
-
-  it("4409 com a sessão ativa também para, sem reconectar", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.receive({ v: 1, type: "session.superseded", sessionId: "s1" });
-    first.serverClose(4409);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: SESSION_SUPERSEDED_MESSAGE });
-    vi.advanceTimersByTime(RESUME_WINDOW_MS);
-    expect(t.sockets).toHaveLength(1);
-  });
-
-  it("sessão substituída por outro Iniciar: mostra a mensagem própria", async () => {
-    const t = setup();
-    const first = await startRunning(t);
-    first.receive({ v: 1, type: "session.ended", sessionId: "s1", reason: "replaced" });
-    first.serverClose(4410);
-    expect(t.store.snapshot()).toMatchObject({ status: "error", errorMessage: SESSION_REPLACED_MESSAGE });
-  });
-
-  it("queda antes do session.started não reconecta", async () => {
-    const t = setup();
-    await t.controller.start(params);
-    t.sockets[0]!.open();
-    t.sockets[0]!.serverClose(1006);
-    expect(t.store.snapshot().status).toBe("error");
-    vi.advanceTimersByTime(RESUME_WINDOW_MS);
-    expect(t.sockets).toHaveLength(1);
-  });
-});
-

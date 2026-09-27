@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@snowspeak/shared";
+import type { EngineMessage } from "@snowspeak/shared";
 import type { SessionStore } from "./session-store";
 
 export interface SentenceTranslator {
@@ -25,7 +25,7 @@ export interface TranslationQueueOptions {
   now?: () => number;
 }
 
-// Traduz cada frase que o servidor marca como pronta e grava o resultado no store.
+// Traduz cada frase que o motor marca como pronta e grava o resultado no store.
 // Cada trabalho pertence a uma sessão: resultados de sessões anteriores são descartados.
 export class TranslationQueue {
   private current: SessionTranslations | null = null;
@@ -39,7 +39,7 @@ export class TranslationQueue {
     this.now = options.now ?? Date.now;
   }
 
-  handle(message: ServerMessage): void {
+  handle(message: EngineMessage): void {
     if (message.type === "session.started") {
       this.release();
       this.current = { sessionId: message.sessionId, translator: null, retryAt: 0, unavailable: false, pending: 0 };

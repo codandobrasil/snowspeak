@@ -1,4 +1,5 @@
 import { MAX_CONTEXT_CHARS, MAX_JOB_CHARS, MAX_PROFILE_CHARS, MODES, type Mode } from "@snowspeak/shared";
+import { DEFAULT_SUGGESTION_MODEL } from "@snowspeak/engine";
 import type { PanelStartParams, RuntimeMessage, StartResponse } from "../messaging";
 import { initialState, type Caption, type SessionState, type SessionStatus } from "../offscreen/session-store";
 import { TRANSLATOR_UNAVAILABLE_NOTICE } from "../offscreen/translation-queue";
@@ -8,14 +9,23 @@ import { captionEmphasis, captionLines, columnTitles, isCaptureMode, selectableQ
 import { suggestionCard } from "./suggestion-view";
 import { waitForTranslator } from "./translator-wait";
 
-const DEFAULT_SETTINGS: PanelStartParams = { serverUrl: "ws://localhost:8787/ws", token: "", mode: "work", context: "", profile: "", job: "" };
+const DEFAULT_SETTINGS: PanelStartParams = {
+  deepgramKey: "",
+  openRouterKey: "",
+  suggestionModel: DEFAULT_SUGGESTION_MODEL,
+  mode: "work",
+  context: "",
+  profile: "",
+  job: "",
+};
+// Campos da versão com servidor, apagados do storage na primeira abertura.
+const LEGACY_SETTINGS = ["serverUrl", "token"];
 const DEFAULT_PREFERENCES = { portugueseOnly: false, widthHintDismissed: false };
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
   idle: "Parado",
   starting: "Iniciando…",
   running: "Capturando",
-  reconnecting: "Reconectando…",
   stopping: "Finalizando…",
   error: "Erro",
 };
@@ -23,8 +33,9 @@ const STATUS_LABELS: Record<SessionStatus, string> = {
 const SKIPPED_TRANSLATOR_NOTICE = "O tradutor do Chrome continua baixando; as frases ficam em inglês até ele ficar pronto.";
 
 const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
-const serverUrlInput = byId<HTMLInputElement>("serverUrl");
-const tokenInput = byId<HTMLInputElement>("token");
+const deepgramKeyInput = byId<HTMLInputElement>("deepgramKey");
+const openRouterKeyInput = byId<HTMLInputElement>("openRouterKey");
+const suggestionModelInput = byId<HTMLInputElement>("suggestionModel");
 const modeSelect = byId<HTMLSelectElement>("mode");
 const contextInput = byId<HTMLTextAreaElement>("context");
 const profileInput = byId<HTMLTextAreaElement>("profile");
@@ -149,7 +160,7 @@ function renderCaptions(state: SessionState, suggestionVisible: boolean): void {
 
 function render(): void {
   const state = lastState;
-  const active = pendingStart || state.status === "starting" || state.status === "running" || state.status === "reconnecting";
+  const active = pendingStart || state.status === "starting" || state.status === "running";
   document.body.classList.toggle("capturing", isCaptureMode(state.status, pendingStart));
   portugueseOnlyButton.setAttribute("aria-pressed", String(portugueseOnly));
   statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
@@ -157,7 +168,7 @@ function render(): void {
   stopButton.disabled = !active;
   muteMicButton.setAttribute("aria-pressed", String(state.micMuted));
   muteMicButton.textContent = state.micMuted ? "Microfone desligado" : "Microfone";
-  muteMicButton.disabled = state.mic !== "active" || (state.status !== "running" && state.status !== "reconnecting");
+  muteMicButton.disabled = state.mic !== "active" || state.status !== "running";
   clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";
@@ -216,20 +227,13 @@ function showLocalNotice(message: string | null): void {
   localNoticeLabel.textContent = message ?? "";
 }
 
-function isWebSocketUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "ws:" || url.protocol === "wss:";
-  } catch {
-    return false;
-  }
-}
-
 function readForm(): PanelStartParams {
   const mode = MODES.includes(modeSelect.value as Mode) ? (modeSelect.value as Mode) : "work";
   return {
-    serverUrl: serverUrlInput.value.trim(),
-    token: tokenInput.value.trim(),
+    // Chaves coladas costumam vir com espaço ou quebra de linha.
+    deepgramKey: deepgramKeyInput.value.trim(),
+    openRouterKey: openRouterKeyInput.value.trim(),
+    suggestionModel: suggestionModelInput.value.trim() || DEFAULT_SUGGESTION_MODEL,
     mode,
     context: contextInput.value,
     profile: profileInput.value,
@@ -238,9 +242,11 @@ function readForm(): PanelStartParams {
 }
 
 async function loadSettings(): Promise<void> {
+  await chrome.storage.local.remove(LEGACY_SETTINGS);
   const settings = (await chrome.storage.local.get(DEFAULT_SETTINGS)) as PanelStartParams;
-  serverUrlInput.value = settings.serverUrl;
-  tokenInput.value = settings.token;
+  deepgramKeyInput.value = settings.deepgramKey;
+  openRouterKeyInput.value = settings.openRouterKey;
+  suggestionModelInput.value = settings.suggestionModel;
   modeSelect.value = settings.mode;
   contextInput.value = settings.context;
   profileInput.value = settings.profile;
@@ -292,12 +298,9 @@ startButton.addEventListener("click", async () => {
   if (pendingStart) return;
   showLocalError(null);
   const settings = readForm();
-  if (!isWebSocketUrl(settings.serverUrl)) {
-    showLocalError("Endereço do servidor inválido (use ws:// ou wss://).");
-    return;
-  }
-  if (!settings.token) {
-    showLocalError("Informe a chave de acesso.");
+  if (!settings.deepgramKey) {
+    showLocalError("Informe a chave do Deepgram em Configurações.");
+    settingsPanel.open = true;
     return;
   }
 
@@ -385,7 +388,9 @@ function onSettingsChanged(): void {
   const changes = { mode: settings.mode, context: settings.context, profile: settings.profile, job: settings.job };
   chrome.runtime.sendMessage({ target: "offscreen", type: "update", changes } satisfies RuntimeMessage).catch(() => undefined);
 }
-for (const field of [modeSelect, contextInput, profileInput, jobInput]) field.addEventListener("change", onSettingsChanged);
+for (const field of [modeSelect, contextInput, profileInput, jobInput, deepgramKeyInput, openRouterKeyInput, suggestionModelInput]) {
+  field.addEventListener("change", onSettingsChanged);
+}
 modeSelect.addEventListener("change", render);
 
 portugueseOnlyButton.addEventListener("click", () => {

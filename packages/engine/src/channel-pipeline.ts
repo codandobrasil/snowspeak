@@ -1,4 +1,4 @@
-import { SAMPLE_RATE, frameSamples, samplesToMs, type AudioFrame, type Channel, type ServerEventBody } from "@snowspeak/shared";
+import { SAMPLE_RATE, frameSamples, samplesToMs, type AudioFrame, type Channel, type EngineEventBody } from "@snowspeak/shared";
 import { ChannelSequencer } from "./channel-sequencer";
 import { ForwardClock } from "./forward-clock";
 import type { LatencyStats } from "./latency";
@@ -23,7 +23,7 @@ export interface ChannelPipelineDeps {
   sttFactory: SttFactory;
   /** Canal them: divide as falas em frases para a tradução. */
   splitSentences: boolean;
-  emit: (body: ServerEventBody) => void;
+  emit: (body: EngineEventBody) => void;
   sttLatency: LatencyStats;
   now: () => number;
   /** Cada fala encerrada, com o texto completo (ex.: para sugestões de resposta). */

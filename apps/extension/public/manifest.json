@@ -11,6 +11,7 @@
     "activeTab",
     "storage"
   ],
+  "host_permissions": ["https://api.deepgram.com/*", "https://openrouter.ai/*"],
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"

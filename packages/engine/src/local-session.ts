@@ -1,4 +1,4 @@
-import type { Channel, EngineMessage, ServerEvent, ServerEventBody, SessionEndReason } from "@snowspeak/shared";
+import type { Channel, EngineMessage, EngineEvent, EngineEventBody, SessionEndReason } from "@snowspeak/shared";
 import { ChannelPipeline, type ChannelStats } from "./channel-pipeline";
 import { LatencyStats, formatLatency } from "./latency";
 import type { SttFactory } from "./stt/types";
@@ -133,8 +133,8 @@ export class LocalSession {
     });
   }
 
-  private emit(body: ServerEventBody): void {
+  private emit(body: EngineEventBody): void {
     this.seq += 1;
-    this.deps.onMessage({ v: 1, sessionId: this.id, seq: this.seq, ts: this.now(), ...body } as ServerEvent);
+    this.deps.onMessage({ v: 1, sessionId: this.id, seq: this.seq, ts: this.now(), ...body } as EngineEvent);
   }
 }

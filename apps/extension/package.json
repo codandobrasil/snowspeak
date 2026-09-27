@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@snowspeak/engine": "workspace:^",
     "@snowspeak/shared": "workspace:^"
   },
   "devDependencies": {

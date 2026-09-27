@@ -1,4 +1,4 @@
-import type { Channel, Mode, ServerEventBody, SuggestionErrorCode, SuggestionTrigger } from "@snowspeak/shared";
+import type { Channel, Mode, EngineEventBody, SuggestionErrorCode, SuggestionTrigger } from "@snowspeak/shared";
 import { SuggesterAuthError, type Suggester } from "./openrouter";
 import { buildSuggestionMessages, type TranscriptLine } from "./prompt";
 import { looksLikeQuestion } from "./question-detector";
@@ -17,7 +17,7 @@ export interface SuggestionSettings {
 
 export interface SuggestionEngineDeps {
   suggester: Suggester;
-  emit: (body: ServerEventBody) => void;
+  emit: (body: EngineEventBody) => void;
   settings: () => SuggestionSettings;
   now?: () => number;
   timeoutMs?: number;
