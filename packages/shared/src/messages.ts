@@ -115,7 +115,7 @@ const heartbeatSchema = z.object({
 export const ERROR_SCOPES = ["stt", "translate", "suggest", "session"] as const;
 export const SUGGESTION_TRIGGERS = ["auto", "manual"] as const;
 export type SuggestionTrigger = (typeof SUGGESTION_TRIGGERS)[number];
-export const SUGGESTION_ERROR_CODES = ["busy", "rate_limited", "timeout", "invalid_output", "provider", "cancelled"] as const;
+export const SUGGESTION_ERROR_CODES = ["busy", "rate_limited", "timeout", "invalid_output", "provider", "unauthorized", "cancelled"] as const;
 export type SuggestionErrorCode = (typeof SUGGESTION_ERROR_CODES)[number];
 export type ErrorScope = (typeof ERROR_SCOPES)[number];
 

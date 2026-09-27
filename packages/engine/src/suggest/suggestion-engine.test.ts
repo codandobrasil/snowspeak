@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerEventBody } from "@snowspeak/shared";
 import type { ChatMessage } from "./prompt";
-import type { Suggester } from "./openrouter";
+import { SuggesterAuthError, type Suggester } from "./openrouter";
 import { MANUAL_MIN_INTERVAL_MS, SuggestionEngine } from "./suggestion-engine";
 
 type Script = (messages: ChatMessage[], signal: AbortSignal) => AsyncIterable<string>;
@@ -40,6 +40,15 @@ function setup(script: Script, options: { now?: () => number; timeoutMs?: number
 }
 
 describe("SuggestionEngine", () => {
+  it("chave recusada pelo OpenRouter vira erro unauthorized", async () => {
+    const t = setup(async function* () {
+      throw new SuggesterAuthError(401);
+    });
+    t.engine.request("r1");
+    await settle();
+    expect(t.of("r1").at(-1)).toEqual({ type: "suggestion.error", requestId: "r1", code: "unauthorized" });
+  });
+
   afterEach(() => vi.useRealTimers());
 
   it("pedido manual: started, deltas e done com inglês e português", async () => {

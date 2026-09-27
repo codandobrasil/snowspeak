@@ -1,5 +1,5 @@
 import type { Channel, Mode, ServerEventBody, SuggestionErrorCode, SuggestionTrigger } from "@snowspeak/shared";
-import type { Suggester } from "./openrouter";
+import { SuggesterAuthError, type Suggester } from "./openrouter";
 import { buildSuggestionMessages, type TranscriptLine } from "./prompt";
 import { looksLikeQuestion } from "./question-detector";
 import { TagStreamParser } from "./tag-stream";
@@ -139,7 +139,7 @@ export class SuggestionEngine {
     } catch (error) {
       if (!generation.reason) {
         console.warn(`sugestão falhou: ${error instanceof Error ? error.message : String(error)}`);
-        fail("provider");
+        fail(error instanceof SuggesterAuthError ? "unauthorized" : "provider");
         return;
       }
     }

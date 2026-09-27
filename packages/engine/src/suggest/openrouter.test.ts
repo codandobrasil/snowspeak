@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { createOpenRouterSuggester } from "./openrouter";
+import { SuggesterAuthError, createOpenRouterSuggester } from "./openrouter";
 
 let server: Server | null = null;
 let lastRequest: { headers: IncomingMessage["headers"]; body: Record<string, unknown> } | null = null;
@@ -87,5 +87,24 @@ describe("OpenRouterSuggester", () => {
     })();
     await expect(run).rejects.toThrow();
     expect(pieces).toEqual(["<en>Hi"]);
+  });
+
+  it("chave recusada (401 ou 403) vira SuggesterAuthError", async () => {
+    for (const status of [401, 403]) {
+      const url = await startFake((res) => res.writeHead(status, { "content-type": "application/json" }).end('{"error":{"message":"No auth"}}'));
+      await expect(collect(createOpenRouterSuggester({ apiKey: "k", model: "m", url }).stream([], new AbortController().signal))).rejects.toBeInstanceOf(
+        SuggesterAuthError,
+      );
+      server?.closeAllConnections();
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = null;
+    }
+  });
+
+  it("modelo inexistente (400) é erro comum, não de chave", async () => {
+    const url = await startFake((res) => res.writeHead(400, { "content-type": "application/json" }).end('{"error":{"message":"not a valid model"}}'));
+    const run = collect(createOpenRouterSuggester({ apiKey: "k", model: "nao/existe", url }).stream([], new AbortController().signal));
+    await expect(run).rejects.toThrow("400");
+    await expect(run).rejects.not.toBeInstanceOf(SuggesterAuthError);
   });
 });

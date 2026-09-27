@@ -57,5 +57,6 @@ describe("suggestionCard", () => {
     expect(error("provider")).toBe("Não foi possível gerar a sugestão agora (serviço de IA indisponível).");
     expect(error("invalid_output")).toBe("A IA respondeu fora do formato. Tente de novo (Alt+S).");
     expect(error("cancelled")).toBe("Sugestão cancelada.");
+    expect(error("unauthorized")).toBe("O OpenRouter recusou a chave. Confira em Configurações.");
   });
 });
