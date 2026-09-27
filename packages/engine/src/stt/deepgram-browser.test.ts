@@ -204,4 +204,36 @@ describe("Deepgram no navegador", () => {
     }
     expect(last().sent).not.toContain('{"type":"KeepAlive"}');
   });
+  it("conexão travada: 5 s seguidos sem conseguir enviar derrubam o stream para reconectar", () => {
+    vi.useFakeTimers();
+    const c = collect();
+    const stream = factory({ maxBufferedBytes: 1_000, stallMs: 5_000 })("them", c.callbacks);
+    last().open();
+    last().bufferedAmount = 1_001;
+    for (let i = 0; i < 50; i++) {
+      stream.write(new Uint8Array(4));
+      vi.advanceTimersByTime(100);
+    }
+    stream.write(new Uint8Array(4));
+    expect(c.state.errors.map((e) => e.message)).toEqual(["Deepgram parou de receber o áudio (conexão travada)"]);
+    expect(last().closeCode).toBe("none");
+  });
+
+  it("congestionamento curto não derruba o stream", () => {
+    vi.useFakeTimers();
+    const c = collect();
+    const stream = factory({ maxBufferedBytes: 1_000, stallMs: 5_000 })("them", c.callbacks);
+    last().open();
+    for (let round = 0; round < 3; round++) {
+      last().bufferedAmount = 1_001;
+      for (let i = 0; i < 40; i++) {
+        stream.write(new Uint8Array(4));
+        vi.advanceTimersByTime(100);
+      }
+      last().bufferedAmount = 0;
+      stream.write(new Uint8Array(4));
+    }
+    expect(c.state.errors).toEqual([]);
+    expect(last().closeCode).toBeNull();
+  });
 });

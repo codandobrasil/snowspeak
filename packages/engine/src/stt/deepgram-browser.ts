@@ -8,6 +8,9 @@ export const DEEPGRAM_OPEN_TIMEOUT_MS = 5_000;
 export const DEEPGRAM_MAX_BUFFERED_BYTES = 32 * 1024;
 // O Deepgram fecha a conexão (NET-0001) após ~10 s sem áudio nem KeepAlive — ex.: canal "me" sem microfone.
 export const DEEPGRAM_KEEPALIVE_MS = 4_000;
+// Conexão que trava sem fechar (rota perdida, VPN ou NAT expirando): o navegador segue com o socket aberto,
+// mas nada sai. Depois de 5 s seguidos sem conseguir enviar áudio, o stream é derrubado para reconectar.
+export const DEEPGRAM_STALL_MS = 5_000;
 const MAX_PENDING_FRAMES = 10; // até 1 s de áudio enquanto a conexão abre
 const CONNECTING = 0;
 const OPEN = 1;
@@ -50,6 +53,7 @@ export interface DeepgramOptions {
   openTimeoutMs?: number;
   maxBufferedBytes?: number;
   keepAliveMs?: number;
+  stallMs?: number;
   /** Padrão: o WebSocket do navegador. */
   socketImpl?: BrowserSocketConstructor;
 }
@@ -59,6 +63,7 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
   const openTimeoutMs = options.openTimeoutMs ?? DEEPGRAM_OPEN_TIMEOUT_MS;
   const maxBufferedBytes = options.maxBufferedBytes ?? DEEPGRAM_MAX_BUFFERED_BYTES;
   const keepAliveMs = options.keepAliveMs ?? DEEPGRAM_KEEPALIVE_MS;
+  const stallMs = options.stallMs ?? DEEPGRAM_STALL_MS;
 
   return (channel, callbacks) => {
     const Socket = options.socketImpl ?? (WebSocket as unknown as BrowserSocketConstructor);
@@ -70,6 +75,8 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
     let lastSentAt = Date.now();
     let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     let closedByUs = false;
+    /** Desde quando todo áudio está sendo descartado por congestionamento. */
+    let congestedSince: number | null = null;
     let failed = false;
 
     const stopTimers = (): void => {
@@ -123,8 +130,14 @@ export function createDeepgramSttFactory(options: DeepgramOptions): SttFactory {
           // Áudio atrasado não serve para legenda ao vivo: descarta em vez de acumular.
           if (ws.bufferedAmount > maxBufferedBytes) {
             droppedFrames += 1;
+            congestedSince ??= Date.now();
+            if (Date.now() - congestedSince >= stallMs) {
+              fail("Deepgram parou de receber o áudio (conexão travada)");
+              ws.close();
+            }
             return;
           }
+          congestedSince = null;
           ws.send(pcm);
           lastSentAt = Date.now();
         } else if (ws.readyState === CONNECTING) {

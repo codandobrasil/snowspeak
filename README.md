@@ -45,6 +45,7 @@ A legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquan
 - [ ] Chave do OpenRouter errada numa sessão: o cartão mostra "O OpenRouter recusou a chave. Confira em Configurações."
 - [ ] Desligar o Wi-Fi por ~10 s no meio da sessão: aparece "Reconectando ao Deepgram…", a fala em andamento fica como interrompida, e ao religar o aviso some e a legenda volta.
 - [ ] Desligar o Wi-Fi por mais de 60 s: aparece "A transcrição dos participantes parou: não foi possível reconectar ao Deepgram." e a sessão continua até o Parar.
+- [ ] Conexão travada sem cair: no DevTools do offscreen (`chrome://extensions` → Inspecionar visualizações → offscreen.html → Rede), escolher "Offline" por ~10 s no meio da sessão: em até ~5 s aparece "Reconectando ao Deepgram…" e, ao voltar para "Sem limitação", a legenda volta.
 - [ ] Parar no meio de uma frase: "Finalizando…", as últimas palavras aparecem, depois "Parado".
 - [ ] Fechar e reabrir o painel mantém a legenda e o aviso de reconexão.
 - [ ] Nenhuma chave aparece no console do offscreen (`chrome://extensions` → Inspecionar visualizações → offscreen.html) nem em URLs na aba Rede.
