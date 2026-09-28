@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>SnowSpeak — relatório</title>
+    <link rel="stylesheet" href="/src/report/report.css" />
+  </head>
+  <body>
+    <div class="toolbar">
+      <span>Na janela de impressão, escolha <strong>Salvar como PDF</strong>.</span>
+      <button id="print" type="button">Salvar PDF</button>
+    </div>
+
+    <main class="page">
+      <header class="report-header">
+        <img class="logo" src="/icons/icon-128.png" alt="" width="48" height="48" />
+        <div>
+          <p class="brand">SnowSpeak</p>
+          <h1>Relatório da conversa</h1>
+        </div>
+      </header>
+
+      <dl class="meta">
+        <div><dt>Data</dt><dd id="date"></dd></div>
+        <div><dt>Início</dt><dd id="start"></dd></div>
+        <div><dt>Fim</dt><dd id="end"></dd></div>
+        <div><dt>Duração</dt><dd id="duration"></dd></div>
+        <div><dt>Modo</dt><dd id="mode"></dd></div>
+      </dl>
+
+      <section id="context-block" class="note" hidden>
+        <h2>Contexto</h2>
+        <p id="context"></p>
+      </section>
+      <section id="job-block" class="note" hidden>
+        <h2>Descrição da vaga</h2>
+        <p id="job"></p>
+      </section>
+
+      <h2 class="section-title">Conversa</h2>
+      <ol id="conversation" class="conversation"></ol>
+      <p id="empty" class="empty" hidden>Nenhuma fala registrada nesta sessão.</p>
+
+      <footer class="report-footer">Gerado pelo SnowSpeak · transcrição pelo Deepgram, tradução do Chrome, sugestões por IA.</footer>
+    </main>
+
+    <p id="missing" class="missing" hidden>Não há conversa para mostrar. Volte ao painel do SnowSpeak e clique em <strong>Baixar PDF</strong>.</p>
+
+    <script type="module" src="/src/report/main.ts"></script>
+  </body>
+</html>

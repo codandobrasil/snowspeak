@@ -16,7 +16,9 @@ import {
   visibleCaptions,
   type CaptionEmphasis,
 } from "./panel-view";
+import type { ConversationSnapshot } from "../offscreen/conversation-log";
 import { checkDeepgramKey, checkOpenRouterKey, describeKeyCheck } from "./key-check";
+import { REPORT_STORAGE_KEY, buildReport } from "./report-model";
 import { suggestionCard } from "./suggestion-view";
 import { waitForTranslator } from "./translator-wait";
 
@@ -57,6 +59,7 @@ const suggestButton = byId<HTMLButtonElement>("suggest");
 const responseLengthSelect = byId<HTMLSelectElement>("response-length");
 const suggestionsToggle = byId<HTMLButtonElement>("suggestions-toggle");
 const popOutButton = byId<HTMLButtonElement>("pop-out");
+const downloadPdfButton = byId<HTMLButtonElement>("download-pdf");
 const suggestionItem = byId<HTMLLIElement>("suggestion-item");
 const suggestionLabel = byId<HTMLSpanElement>("suggestion-label");
 const suggestionPending = byId<HTMLSpanElement>("suggestion-pending");
@@ -202,6 +205,8 @@ function render(): void {
   muteMicButton.textContent = state.micMuted ? "Microfone desligado" : "Microfone";
   muteMicButton.disabled = state.mic !== "active" || state.status !== "running";
   clearButton.disabled = state.captions.length === 0 && state.suggestion === null;
+  // A conversa continua guardada depois do Limpar e do Parar; só não há o que baixar antes da primeira sessão.
+  downloadPdfButton.disabled = state.sessionId === null;
   errorLabel.hidden = !state.errorMessage;
   errorLabel.textContent = state.errorMessage ?? "";
   noticeLabel.hidden = !state.notice;
@@ -434,6 +439,23 @@ suggestionsToggle.addEventListener("click", () => {
   void chrome.storage.local.set({ suggestionsOn });
   chrome.runtime.sendMessage({ target: "offscreen", type: "suggestions-on", on: suggestionsOn } satisfies RuntimeMessage).catch(() => undefined);
   render();
+});
+
+downloadPdfButton.addEventListener("click", async () => {
+  let conversation: ConversationSnapshot | undefined;
+  try {
+    conversation = (await chrome.runtime.sendMessage({ target: "offscreen", type: "get-conversation" } satisfies RuntimeMessage)) as ConversationSnapshot | undefined;
+  } catch {
+    conversation = undefined;
+  }
+  if (!conversation || (conversation.captions.length === 0 && conversation.suggestions.length === 0)) {
+    showLocalNotice("Ainda não há conversa para baixar.");
+    return;
+  }
+  const { mode, context, job } = readForm();
+  const report = buildReport(conversation, { mode, context, job, now: Date.now() });
+  await chrome.storage.session.set({ [REPORT_STORAGE_KEY]: report });
+  await chrome.tabs.create({ url: chrome.runtime.getURL("report.html") });
 });
 
 popOutButton.addEventListener("click", async () => {

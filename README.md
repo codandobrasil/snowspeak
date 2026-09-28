@@ -56,6 +56,7 @@ A legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquan
 - [ ] Resposta curta, média e longa mudam o tamanho da sugestão, inclusive no meio da sessão.
 - [ ] **Sugestões desligadas**: clicar nos blocos, o botão e o Alt+S não geram nada; ao religar, voltam. A escolha fica salva.
 - [ ] **Abrir em janela**: o painel abre numa janela que dá para arrastar para outro monitor; Iniciar nessa janela captura a aba em que você clicou no ícone.
+- [ ] **Baixar PDF** (durante ou depois da sessão, mesmo depois do Limpar): abre o relatório com data, horários, duração, modo, contexto, vaga, todas as falas com tradução e cada sugestão abaixo da pergunta; a impressão abre sozinha e "Salvar como PDF" sugere o nome `SnowSpeak – <modo> – <data> <hora>`.
 - [ ] Repetir numa chamada real do Google Meet.
 
 ## Publicação na Chrome Web Store

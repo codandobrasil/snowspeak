@@ -1,0 +1,74 @@
+/* Relatório pensado para impressão em A4 (Salvar como PDF); na tela, uma folha centralizada. */
+:root {
+  --ink: #1d2330;
+  --muted: #6b7280;
+  --line: #e3e7ee;
+  --them: #1a73e8;
+  --me: #7c4dff;
+  --translation: #1e7a3c;
+  --suggestion-bg: #f3f7ff;
+  --suggestion-border: #b9d0ff;
+}
+
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm;
+  @bottom-center {
+    content: "SnowSpeak · página " counter(page) " de " counter(pages);
+    font: 9pt system-ui, sans-serif;
+    color: #6b7280;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; background: #eef1f5; color: var(--ink); font: 11pt/1.5 system-ui, "Segoe UI", Roboto, sans-serif; }
+
+.toolbar {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 10px 16px; background: #1d2330; color: #fff; font-size: 14px;
+}
+.toolbar button { font: inherit; padding: 6px 16px; border: 0; border-radius: 6px; background: #5ab0ff; color: #0b1a2a; cursor: pointer; }
+
+.page { max-width: 210mm; margin: 24px auto; padding: 18mm 16mm; background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08); }
+
+.report-header { display: flex; align-items: center; gap: 14px; padding-bottom: 12px; border-bottom: 2px solid var(--them); }
+.logo { width: 48px; height: 48px; }
+.brand { margin: 0; font-size: 10pt; letter-spacing: 0.08em; text-transform: uppercase; color: var(--them); font-weight: 600; }
+h1 { margin: 0; font-size: 20pt; line-height: 1.2; }
+
+.meta { display: grid; grid-template-columns: repeat(5, auto); justify-content: start; gap: 4px 28px; margin: 14px 0 18px; }
+.meta dt { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.meta dd { margin: 0; font-weight: 600; }
+
+.note { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; break-inside: avoid; }
+.note h2 { margin: 0 0 4px; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.note p { margin: 0; white-space: pre-wrap; font-size: 10pt; }
+
+.section-title { margin: 20px 0 10px; font-size: 13pt; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+
+.conversation { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.utterance { padding: 6px 0 6px 12px; border-left: 3px solid var(--them); break-inside: avoid; }
+.utterance.me { margin-left: 14%; border-left-color: var(--me); }
+.who { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.who .name { font-weight: 700; color: var(--them); }
+.utterance.me .who .name { color: var(--me); }
+.english { margin: 2px 0 0; }
+.portuguese { margin: 2px 0 0; color: var(--translation); }
+.interrupted { margin-left: 6px; font-style: italic; text-transform: none; letter-spacing: 0; }
+
+.suggestion { margin-left: 14%; padding: 8px 12px; background: var(--suggestion-bg); border: 1px solid var(--suggestion-border); border-radius: 8px; break-inside: avoid; }
+.suggestion .label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.06em; color: var(--them); font-weight: 700; }
+.suggestion .en { margin: 2px 0 0; font-weight: 600; }
+.suggestion .pt { margin: 2px 0 0; color: var(--translation); }
+
+.empty, .missing { color: var(--muted); }
+.missing { max-width: 32rem; margin: 4rem auto; padding: 0 1rem; font-size: 16px; }
+.report-footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 8.5pt; color: var(--muted); }
+
+@media print {
+  body { background: #fff; }
+  .toolbar { display: none; }
+  .page { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+}

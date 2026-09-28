@@ -42,6 +42,8 @@ export interface Caption {
   interrupted: boolean;
   /** Por sentenceIdx. */
   sentences: Record<number, CaptionSentence>;
+  /** Hora (ms) do primeiro evento da fala, para o relatório. */
+  startedAt?: number;
 }
 
 export interface SessionState {
@@ -128,12 +130,18 @@ function withoutReconnecting(state: SessionState): SessionState {
   };
 }
 
-function withCaption(state: SessionState, channel: Channel, utteranceId: string, update: (caption: Caption) => Caption): SessionState {
+function withCaption(
+  state: SessionState,
+  channel: Channel,
+  utteranceId: string,
+  update: (caption: Caption) => Caption,
+  startedAt?: number,
+): SessionState {
   const index = state.captions.findIndex((c) => c.utteranceId === utteranceId);
   const current: Caption =
     index >= 0
       ? (state.captions[index] as Caption)
-      : { utteranceId, channel, segments: [], partial: "", ended: false, interrupted: false, sentences: {} };
+      : { utteranceId, channel, segments: [], partial: "", ended: false, interrupted: false, sentences: {}, startedAt };
   const captions = [...state.captions];
   if (index >= 0) captions[index] = update(current);
   else captions.push(update(current));
@@ -172,20 +180,20 @@ function applyEngineMessage(state: SessionState, message: EngineMessage): Sessio
   const next = { ...state, lastSeq: message.seq };
   switch (message.type) {
     case "transcript.partial":
-      return withCaption(next, message.channel, message.utteranceId, (c) => ({ ...c, partial: message.text }));
+      return withCaption(next, message.channel, message.utteranceId, (c) => ({ ...c, partial: message.text }), message.ts);
     case "transcript.segment":
       return withCaption(next, message.channel, message.utteranceId, (c) => {
         const segments = [...c.segments];
         segments[message.segmentIdx] = message.text;
         return { ...c, segments, partial: "" };
-      });
+      }, message.ts);
     case "utterance.end":
       return endCaption(next, message.utteranceId, message.interrupted);
     case "sentence.ready":
       return withCaption(next, message.channel, message.utteranceId, (c) => ({
         ...c,
         sentences: { ...c.sentences, [message.sentenceIdx]: { source: message.text, translation: null, failed: false } },
-      }));
+      }), message.ts);
     case "audio.gap":
       return withChannel(next, message.channel, { lostMs: next.channels[message.channel].lostMs + message.durationMs });
     case "stt.status": {
