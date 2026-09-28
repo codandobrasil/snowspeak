@@ -12,6 +12,7 @@ Legendas EN→PT-BR em tempo real e sugestões de resposta para chamadas no nave
 - Google Chrome 116+ (a tradução precisa do Chrome 138+ para desktop)
 - Uma chave do Deepgram (console.deepgram.com → API Keys; a conta nova vem com crédito)
 - Opcional: uma chave do OpenRouter para as sugestões (openrouter.ai → Keys)
+- Python 3 (só para gerar o zip da loja)
 
 ## Desenvolvimento
 
@@ -28,9 +29,91 @@ pnpm --filter @snowspeak/extension build
 
 Depois de mudar o código: `pnpm --filter @snowspeak/extension build` e clique em recarregar no card da extensão.
 
-### O que o painel mostra
+## Como usar
 
-A legenda da conversa. O inglês aparece enquanto a pessoa fala (em cinza enquanto é provisório), o português aparece em verde abaixo de cada frase dos participantes, e as suas falas aparecem em roxo, sem tradução. Na primeira sessão, o Chrome pode baixar o modelo de tradução (há um botão para seguir só em inglês enquanto isso). Com a chave do OpenRouter, a sugestão de resposta aparece logo abaixo da pergunta.
+### Configurações
+
+Ficam no topo do painel e são salvas só neste navegador (`chrome.storage.local`).
+
+| Campo | Para que serve |
+|---|---|
+| Chave do Deepgram | Obrigatória. Transcreve o áudio da aba e do microfone. |
+| Chave do OpenRouter | Opcional. Sem ela, a legenda e a tradução funcionam, mas não há sugestões de resposta. |
+| Modelo das sugestões | Padrão `anthropic/claude-haiku-4.5`; aceita qualquer modelo do OpenRouter. |
+| Testar chaves | Confere as duas chaves e diz qual foi recusada. |
+| Modo | Trabalho, Vendas, Entrevista ou Relacionamento: muda o tom das sugestões e o nome da coluna (Entrevistador/Participantes). |
+| Contexto, currículo e vaga | Usados só para gerar as sugestões; a IA não inventa fatos que não estejam no currículo. |
+
+### Durante a sessão
+
+1. Na aba da chamada (Meet, Zoom no navegador, vídeo), clique no ícone do SnowSpeak e em **Iniciar**. O painel captura **a aba em que o ícone foi clicado**.
+2. A legenda aparece em duas colunas: o participante à esquerda (inglês e, logo abaixo, a tradução em verde) e você à direita. A fala atual do participante fica em destaque; as anteriores, esmaecidas.
+3. Interjeições como "hmm", "uh-huh", "yeah", "claro" e "sim" não aparecem na legenda.
+4. Se a conexão com o Deepgram cair, aparece "Reconectando ao Deepgram…" e a legenda volta sozinha (até 60 s).
+
+Barra de botões:
+
+| Botão | O que faz |
+|---|---|
+| Iniciar / Parar | Começa e termina a captura. O Parar espera as últimas palavras. |
+| Só português | Mostra só a tradução das falas do participante. |
+| Microfone | Liga ou desliga o envio da sua voz (nada da sua voz sai do computador enquanto desligado). |
+| Resposta curta / média / longa | Tamanho da sugestão: 1 frase, 2 a 3 frases ou 4 a 6 frases com um exemplo do currículo. Vale na hora. |
+| Sugestões ligadas / desligadas | Desligado, nenhum pedido vai ao OpenRouter. |
+| Baixar PDF | Baixa a conversa inteira em PDF (veja abaixo). |
+| Limpar | Apaga da tela as falas e a sugestão prontas; a conversa continua guardada para o PDF. |
+
+### Sugestões de resposta
+
+Nada é gerado sozinho. A sugestão sai quando você:
+- clica numa fala terminada do participante (ou Tab + Enter nela): responde àquela pergunta;
+- clica em **Sugerir resposta** ou aperta **Alt+S**: responde à última fala do participante.
+
+A sugestão aparece logo abaixo da pergunta, em inglês, com a tradução em português.
+
+### Abrir em janela
+
+O botão **Abrir em janela**, no cabeçalho, abre o mesmo painel numa janela própria do Chrome, que pode ser arrastada para outro monitor e redimensionada. A janela captura a aba que o painel estava mostrando. Painel lateral e janela mostram a mesma sessão.
+
+### Baixar PDF
+
+O botão **Baixar PDF** abre um relatório diagramado e a janela de impressão do Chrome; escolha **Salvar como PDF**. O nome sugerido é `SnowSpeak – <modo> – <data> <hora>`. Se fechar a impressão, o botão **Salvar PDF** no topo da página abre de novo.
+
+O relatório traz, em A4:
+- cabeçalho com data, início, fim, duração e modo;
+- contexto e descrição da vaga, quando preenchidos;
+- a conversa inteira, na ordem, com o horário de cada fala, a tradução das falas do participante e a marca de "fala interrompida";
+- cada sugestão num quadro logo abaixo da pergunta a que respondeu;
+- numeração de páginas no rodapé.
+
+A conversa inteira fica guardada até o próximo **Iniciar**, inclusive as falas que já saíram da tela (o painel mostra só as 200 mais recentes) e depois do **Limpar**. Nada sai do navegador para gerar o PDF.
+
+### Privacidade
+
+Não há servidor do SnowSpeak. O áudio vai direto do navegador ao Deepgram; a conversa, o modo, o contexto, o currículo e a vaga vão direto ao OpenRouter só quando você pede uma sugestão. A tradução roda no próprio Chrome. As chaves nunca aparecem em URLs nem em logs. Detalhes em `docs/loja/politica-de-privacidade.md`.
+
+## Estrutura do projeto
+
+| Pasta | Conteúdo |
+|---|---|
+| `packages/engine` | O motor que roda no offscreen: cliente do Deepgram (WebSocket do navegador, com reconexão), montagem de falas e frases, sugestões pelo OpenRouter e a sessão local (`LocalSession`). |
+| `packages/shared` | Tipos das mensagens do motor, áudio e o detector de interjeições. |
+| `apps/extension` | A extensão MV3: service worker, documento offscreen (captura, motor, tradução, registro da conversa), painel lateral e a página do relatório em PDF. |
+| `apps/extension/icons-src` | Logo original e a versão recortada com cantos transparentes, de onde saem os ícones. |
+| `docs/loja` | Política de privacidade e textos da listagem da Chrome Web Store. |
+| `docs/superpowers` | Specs e planos de cada etapa. |
+
+### Ícones
+
+Os ícones em `apps/extension/public/icons/` saem de `apps/extension/icons-src/logo.png` (1024×1024, cantos transparentes). Para trocar o logo, gere de novo:
+
+```bash
+cd apps/extension
+for s in 16 32 48; do magick icons-src/logo.png -resize ${s}x${s} -depth 8 public/icons/icon-$s.png; done
+magick icons-src/logo.png -resize 96x96 -background none -gravity center -extent 128x128 -depth 8 public/icons/icon-128.png
+```
+
+O de 128 px tem a arte em 96 px com 16 px de margem, como pede a Chrome Web Store.
 
 ## BYOK — roteiro de validação
 
