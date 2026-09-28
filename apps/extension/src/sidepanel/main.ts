@@ -198,7 +198,9 @@ function render(): void {
   suggestionsToggle.disabled = !lastState.suggestionsEnabled && isCaptureMode(lastState.status, false);
   // Na janela avulsa não há o que destacar de novo, nem borda para arrastar.
   popOutButton.hidden = captureTabId !== undefined;
-  statusLabel.textContent = pendingStart && state.status !== "running" ? STATUS_LABELS.starting : STATUS_LABELS[state.status];
+  const shownStatus: SessionStatus = pendingStart && state.status !== "running" ? "starting" : state.status;
+  statusLabel.textContent = STATUS_LABELS[shownStatus];
+  statusLabel.dataset.status = shownStatus;
   startButton.disabled = active || state.status === "stopping";
   stopButton.disabled = !active;
   muteMicButton.setAttribute("aria-pressed", String(state.micMuted));
