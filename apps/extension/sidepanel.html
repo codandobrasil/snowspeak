@@ -16,45 +16,57 @@
 
     <details id="settings" class="settings" open>
       <summary>Configurações</summary>
-      <label>Chave do Deepgram <input id="deepgramKey" type="password" autocomplete="off" spellcheck="false" /></label>
-      <p class="hint">Obrigatória. Gere em <a href="https://console.deepgram.com/" target="_blank" rel="noopener">console.deepgram.com</a> → API Keys.</p>
-      <label>Chave do OpenRouter (opcional) <input id="openRouterKey" type="password" autocomplete="off" spellcheck="false" /></label>
-      <p class="hint">Sem ela, a legenda funciona, mas não há sugestões de resposta. Gere em <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
-      <label>Modelo das sugestões <input id="suggestionModel" type="text" autocomplete="off" spellcheck="false" /></label>
-      <p class="key-check"><button id="check-keys" type="button">Testar chaves</button> <span id="key-check-result" class="hint" aria-live="polite"></span></p>
-      <label>
-        Modo
-        <select id="mode">
-          <option value="work">Trabalho</option>
-          <option value="sales">Vendas</option>
-          <option value="interview">Entrevista</option>
-          <option value="relationship">Relacionamento</option>
-        </select>
-      </label>
-      <label>Contexto <textarea id="context" rows="3"></textarea></label>
-      <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
-      <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
-      <p class="hint">Suas chaves, currículo e vaga ficam só neste navegador. O áudio vai direto ao Deepgram; a conversa, o currículo e a vaga vão direto ao OpenRouter apenas para gerar sugestões.</p>
+      <fieldset class="group">
+        <legend>Chaves de acesso</legend>
+        <label>Chave do Deepgram <input id="deepgramKey" type="password" autocomplete="off" spellcheck="false" /></label>
+        <p class="hint">Obrigatória. Gere em <a href="https://console.deepgram.com/" target="_blank" rel="noopener">console.deepgram.com</a> → API Keys.</p>
+        <label>Chave do OpenRouter (opcional) <input id="openRouterKey" type="password" autocomplete="off" spellcheck="false" /></label>
+        <p class="hint">Sem ela, a legenda funciona, mas não há sugestões de resposta. Gere em <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
+        <label>Modelo das sugestões <input id="suggestionModel" type="text" autocomplete="off" spellcheck="false" /></label>
+        <p class="key-check"><button id="check-keys" type="button">Testar chaves</button> <span id="key-check-result" class="hint" aria-live="polite"></span></p>
+      </fieldset>
+      <fieldset class="group">
+        <legend>Conversa</legend>
+        <label>
+          Modo
+          <select id="mode">
+            <option value="work">Trabalho</option>
+            <option value="sales">Vendas</option>
+            <option value="interview">Entrevista</option>
+            <option value="relationship">Relacionamento</option>
+          </select>
+        </label>
+        <label>Contexto <textarea id="context" rows="3"></textarea></label>
+        <label>Seu currículo / resumo profissional <textarea id="profile" rows="5" placeholder="Ex.: Desenvolvedor backend há 8 anos, Node e Kafka, liderei a migração de pagamentos no Nubank…"></textarea></label>
+        <label>Descrição da vaga <textarea id="job" rows="4" placeholder="Cole aqui a descrição da vaga."></textarea></label>
+      </fieldset>
+      <p class="hint privacy">Suas chaves, currículo e vaga ficam só neste navegador. O áudio vai direto ao Deepgram; a conversa, o currículo e a vaga vão direto ao OpenRouter apenas para gerar sugestões.</p>
     </details>
 
     <div class="actions">
-      <button id="start">Iniciar</button>
-      <button id="stop" disabled>Parar</button>
-      <button id="skip-translator" hidden>Continuar só em inglês</button>
-      <button id="portuguese-only" class="toggle" aria-pressed="false" title="Mostrar só a tradução das falas dos participantes">Só português</button>
-      <button id="mute-mic" class="mute" aria-pressed="false" title="Parar de enviar o seu microfone (nada da sua voz sai do computador)">Microfone</button>
-      <select id="response-length" title="Tamanho da resposta sugerida">
-        <option value="short">Resposta curta</option>
-        <option value="medium">Resposta média</option>
-        <option value="long">Resposta longa</option>
-      </select>
-      <button id="suggestions-toggle" class="toggle" aria-pressed="true" title="Ligar ou desligar as sugestões de resposta">Sugestões ligadas</button>
-      <button id="download-pdf" title="Baixar a conversa inteira em PDF, com traduções e sugestões">Baixar PDF</button>
-      <button id="clear" title="Apagar a legenda e a sugestão (a fala em andamento continua)">Limpar</button>
-      <span class="dots" aria-hidden="true">
-        <span class="dot" data-dot="them" title="Participantes"></span>
-        <span class="dot" data-dot="me" title="Você"></span>
-      </span>
+      <div class="action-group session">
+        <button id="start" class="primary">Iniciar</button>
+        <button id="stop" class="danger" disabled>Parar</button>
+        <button id="skip-translator" hidden>Continuar só em inglês</button>
+        <button id="mute-mic" class="mute" aria-pressed="false" title="Parar de enviar o seu microfone (nada da sua voz sai do computador)">Microfone</button>
+        <span class="dots" aria-hidden="true">
+          <span class="dot" data-dot="them" title="Participantes"></span>
+          <span class="dot" data-dot="me" title="Você"></span>
+        </span>
+      </div>
+      <div class="action-group view">
+        <button id="portuguese-only" class="toggle" aria-pressed="false" title="Mostrar só a tradução das falas dos participantes">Só português</button>
+        <button id="suggestions-toggle" class="toggle" aria-pressed="true" title="Ligar ou desligar as sugestões de resposta">Sugestões ligadas</button>
+        <select id="response-length" title="Tamanho da resposta sugerida">
+          <option value="short">Resposta curta</option>
+          <option value="medium">Resposta média</option>
+          <option value="long">Resposta longa</option>
+        </select>
+      </div>
+      <div class="action-group tools">
+        <button id="download-pdf" class="ghost" title="Baixar a conversa inteira em PDF, com traduções e sugestões">Baixar PDF</button>
+        <button id="clear" class="ghost" title="Apagar a legenda e a sugestão (a fala em andamento continua)">Limpar</button>
+      </div>
     </div>
 
     <p id="width-hint" class="hint" hidden>
@@ -97,7 +109,7 @@
     </ol>
 
     <section class="suggestion-area">
-      <button id="suggest" class="suggest-button">Sugerir resposta (Alt+S)</button>
+      <button id="suggest" class="suggest-button primary">Sugerir resposta <kbd>Alt+S</kbd></button>
     </section>
 
     <script type="module" src="/src/sidepanel/main.ts"></script>
