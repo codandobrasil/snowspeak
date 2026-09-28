@@ -1,4 +1,5 @@
 import type { RuntimeMessage } from "../messaging";
+import { ConversationLog, type ConversationSnapshot } from "./conversation-log";
 import type { SessionSettingsChanges, StartParams, SuggestionQuestion } from "./session-controller";
 import type { SessionState, SessionStore } from "./session-store";
 
@@ -11,7 +12,7 @@ export interface OffscreenController {
   setSuggestionsOn(on: boolean): void;
 }
 
-export type OffscreenResponse = { ok: true } | SessionState;
+export type OffscreenResponse = { ok: true } | SessionState | ConversationSnapshot;
 
 /**
  * Trata as mensagens destinadas ao offscreen. Sempre responde a start/stop, para que quem enviou
@@ -21,6 +22,7 @@ export function handleOffscreenMessage(
   message: RuntimeMessage,
   controller: OffscreenController,
   store: SessionStore,
+  log: ConversationLog = new ConversationLog(),
 ): OffscreenResponse | undefined {
   if (message.target !== "offscreen") return undefined;
   switch (message.type) {
@@ -47,5 +49,7 @@ export function handleOffscreenMessage(
       return { ok: true };
     case "get-state":
       return store.snapshot();
+    case "get-conversation":
+      return log.snapshot();
   }
 }

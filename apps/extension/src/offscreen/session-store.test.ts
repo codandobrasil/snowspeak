@@ -19,6 +19,15 @@ function run(...actions: StoreAction[]): SessionState {
 }
 
 describe("reduce", () => {
+  it("guarda o horário do primeiro evento de cada fala", () => {
+    const state = run(
+      { type: "engine", message: started },
+      { type: "engine", message: { ...partial(1, "hel"), ts: 1_000 } as EngineMessage },
+      { type: "engine", message: { ...partial(2, "hello"), ts: 2_000 } as EngineMessage },
+    );
+    expect(state.captions[0]?.startedAt).toBe(1_000);
+  });
+
   it("vai de starting para running com o sessionId", () => {
     const state = run({ type: "starting", suggestionsEnabled: true, suggestionsOn: true }, { type: "engine", message: started });
     expect(state.status).toBe("running");
@@ -181,7 +190,7 @@ describe("falas", () => {
       { type: "engine", message: event(4, { type: "utterance.end", interrupted: false }) },
     );
     expect(state.captions).toEqual([
-      { utteranceId: "them-1", channel: "them", segments: ["Hello there."], partial: "", ended: true, interrupted: false, sentences: {} },
+      { utteranceId: "them-1", channel: "them", segments: ["Hello there."], partial: "", ended: true, interrupted: false, sentences: {}, startedAt: 0 },
     ]);
   });
 

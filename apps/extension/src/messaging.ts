@@ -12,6 +12,7 @@ export type OffscreenMessage =
   | { target: "offscreen"; type: "start"; params: StartParams }
   | { target: "offscreen"; type: "stop" }
   | { target: "offscreen"; type: "get-state" }
+  | { target: "offscreen"; type: "get-conversation" }
   | { target: "offscreen"; type: "suggest"; question?: SuggestionQuestion }
   | { target: "offscreen"; type: "clear" }
   | { target: "offscreen"; type: "mute-mic"; muted: boolean }

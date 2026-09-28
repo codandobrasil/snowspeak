@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RuntimeMessage } from "../messaging";
 import { handleOffscreenMessage, type OffscreenController } from "./message-handler";
 import type { StartParams } from "./session-controller";
+import { ConversationLog } from "./conversation-log";
 import { SessionStore } from "./session-store";
 
 const params: StartParams = {
@@ -67,6 +68,12 @@ describe("handleOffscreenMessage", () => {
     const controller = fakeController();
     expect(handleOffscreenMessage({ target: "offscreen", type: "suggestions-on", on: false }, controller, new SessionStore())).toEqual({ ok: true });
     expect(controller.setSuggestionsOn).toHaveBeenCalledWith(false);
+  });
+
+  it("devolve o registro da conversa em get-conversation", () => {
+    const log = new ConversationLog();
+    const response = handleOffscreenMessage({ target: "offscreen", type: "get-conversation" }, fakeController(), new SessionStore(), log);
+    expect(response).toEqual(log.snapshot());
   });
 
   it("ignora mensagens destinadas a outros contextos", () => {

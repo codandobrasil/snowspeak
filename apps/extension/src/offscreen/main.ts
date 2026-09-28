@@ -3,6 +3,7 @@ import type { RuntimeMessage } from "../messaging";
 import { createChromeTranslator } from "../translation/chrome-translator";
 import { captureMic, captureTab } from "./capture";
 import { BROADCAST_INTERVAL_MS, createCoalescer } from "./coalesce";
+import { ConversationLog } from "./conversation-log";
 import { handleOffscreenMessage } from "./message-handler";
 import { SessionController } from "./session-controller";
 import { SessionStore } from "./session-store";
@@ -35,8 +36,11 @@ const broadcast = createCoalescer(() => {
   chrome.runtime.sendMessage(message).catch(() => undefined);
 }, BROADCAST_INTERVAL_MS);
 store.subscribe(broadcast);
+// A conversa inteira, para o PDF (o store guarda só as falas recentes).
+const conversation = new ConversationLog();
+store.subscribe((state) => conversation.observe(state));
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
-  const response = handleOffscreenMessage(message, controller, store);
+  const response = handleOffscreenMessage(message, controller, store, conversation);
   if (response !== undefined) sendResponse(response);
 });

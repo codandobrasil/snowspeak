@@ -14,6 +14,7 @@ export default defineConfig({
         sidepanel: here("./sidepanel.html"),
         offscreen: here("./offscreen.html"),
         permission: here("./permission.html"),
+        report: here("./report.html"),
         "service-worker": here("./src/background/service-worker.ts"),
         "capture-worklet": here("./src/audio/capture-worklet.ts"),
       },
